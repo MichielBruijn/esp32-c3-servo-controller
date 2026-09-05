@@ -7,8 +7,7 @@
  */
 
 // Display settings ----------------------------------------------------------------------------------------------
-//#define OLED1306 //An SSD1306 0.96" Display is selected, if defined. Otherwise an SH1106 1.3" display
-//#define ALTERNATIVE_LOGO // Alternative boot logo
+#define OLED1306 //An SSD1306 0.96" Display is selected, if defined. Otherwise an SH1106 1.3" display
 
 // WiFi settings -------------------------------------------------------------------------------------------------
 const char* ssid = "Servotester_Deluxe";  // SSID

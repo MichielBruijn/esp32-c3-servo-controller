@@ -180,18 +180,6 @@ void webInterface()
               {
                 Menu = SignalGenerator_Menu;
               }
-              if (header.indexOf("GET /90/on") >= 0)
-              {
-                Menu = Rechner_Menu;
-              }
-              if (header.indexOf("GET /100/on") >= 0)
-              {
-                Menu = Pong_Menu;
-              }
-              if (header.indexOf("GET /110/on") >= 0)
-              {
-                Menu = Flappy_Birds_Menu;
-              }
               if (header.indexOf("GET /120/on") >= 0)
               {
                 Menu = Einstellung_Menu;
@@ -408,10 +396,6 @@ void webInterface()
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">IBUS lesen</button></a></p>");
                 client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Oszilloskop</button></a></p>");
                 client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
-                client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Rechner</button></a></p>");
-                client.println("<p><a href=\"/100/on\"><button class=\"button button1\">P O N G</button></a></p>");
-                client.println("<p><a href=\"/110/on\"><button class=\"button button1\">Flappy Birds</button></a></p>");
-
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Einstellung</button></a></p>");
                 break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
               }

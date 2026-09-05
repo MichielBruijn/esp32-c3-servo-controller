@@ -86,22 +86,21 @@ Array                                         1.0.0
 using namespace std;
 
 // Project specific includes
-#if not defined ALTERNATIVE_LOGO
-#include "src/images.h" // Startlogo Der RC Modellbauer
-#else
-#include "src/images2.h" // Alternative Logo
-#endif
 #include "src/sbus.h"      // For SBUS interface
 #include "src/languages.h" // Menu language ressources
 
 // EEPROM
-#define EEPROM_SIZE 72
+#define NUM_SERVO_CHANNELS 5
+#define SERVO_CHANNEL_DATA_START 48
+#define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * 24) // 24 bytes (6 ints) per servo channel
+#define EEPROM_SIZE (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4         // Deprecated, calculated automaticallly
-#define adr_eprom_SERVO_MAX 8           // Deprecated, controlled by servoModes.h
+#define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
+#define EEPROM_LAYOUT_VERSION 1         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -109,14 +108,17 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
 #define adr_eprom_ENCODER_INVERTED 32   // Encoder inverted
 #define adr_eprom_LANGUAGE 36           // Gewählte Sprache
-#define adr_eprom_PONG_BALL_RATE 40     // Pong Ball Geschwindigkeit
 #define adr_eprom_SERVO_MODE 44         // Servo operation mode
-#define adr_eprom_SERVO_MAX_STD 48      // SERVO µs Max Wert im Servotester Modus (Standard)
-#define adr_eprom_SERVO_MIN_STD 52      // SERVO µs Min Wert im Servotester Modus (Standard)
-#define adr_eprom_SERVO_CENTER_STD 56   // SERVO µs Mitte Wert im Servotester Modus (Standard)
-#define adr_eprom_SERVO_MAX_SANWA 60    // SERVO µs Max Wert im Servotester Modus (Sanwa)
-#define adr_eprom_SERVO_MIN_SANWA 64    // SERVO µs Min Wert im Servotester Modus (Sanwa)
-#define adr_eprom_SERVO_CENTER_SANWA 68 // SERVO µs Mitte Wert im Servotester Modus (Sanwa)
+
+// SERVO µs Max/Min/Center per servo channel (0-4), Standard and Sanwa mode groups, 24 bytes (6 ints) per channel
+#define adr_eprom_SERVO_MAX_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 0)
+#define adr_eprom_SERVO_MIN_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 4)
+#define adr_eprom_SERVO_CENTER_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 8)
+#define adr_eprom_SERVO_MAX_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 12)
+#define adr_eprom_SERVO_MIN_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 16)
+#define adr_eprom_SERVO_CENTER_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 20)
+// Full rotation range in degrees per servo channel (e.g. 90/180/360), appended after the block above
+#define adr_eprom_SERVO_DEGREES(ch) (SERVO_CHANNEL_DATA_END + (ch)*4)
 
 // EEPROM Speicher der Einstellungen
 int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
@@ -129,14 +131,14 @@ int POWER_SCALE;        // Skalierung für Akkuspannungs-Messung
 int SBUS_INVERTED;      // SBUS inverted
 int ENCODER_INVERTED;   // Encoder inverted
 int LANGUAGE;           // Gewählte Sprache
-int PONG_BALL_RATE;     // Pong Ball Geschwindigkeit
 int SERVO_MODE;         // New servo parameters starting here
-int SERVO_MAX_STD;      // SERVO µs Max Wert im Servotester Modus (Standard)
-int SERVO_MIN_STD;      // SERVO µs Min Wert im Servotester Modus (Standard)
-int SERVO_CENTER_STD;   // SERVO µs Mitte Wert im Servotester Modus (Standard)
-int SERVO_MAX_SANWA;    // SERVO µs Max Wert im Servotester Modus (Sanwa)
-int SERVO_MIN_SANWA;    // SERVO µs Min Wert im Servotester Modus (Sanwa)
-int SERVO_CENTER_SANWA; // SERVO µs Mitte Wert im Servotester Modus (Sanwa)
+int SERVO_MAX_STD[NUM_SERVO_CHANNELS];      // SERVO µs Max Wert im Servotester Modus (Standard), pro Kanal
+int SERVO_MIN_STD[NUM_SERVO_CHANNELS];      // SERVO µs Min Wert im Servotester Modus (Standard), pro Kanal
+int SERVO_CENTER_STD[NUM_SERVO_CHANNELS];   // SERVO µs Mitte Wert im Servotester Modus (Standard), pro Kanal
+int SERVO_MAX_SANWA[NUM_SERVO_CHANNELS];    // SERVO µs Max Wert im Servotester Modus (Sanwa), pro Kanal
+int SERVO_MIN_SANWA[NUM_SERVO_CHANNELS];    // SERVO µs Min Wert im Servotester Modus (Sanwa), pro Kanal
+int SERVO_CENTER_SANWA[NUM_SERVO_CHANNELS]; // SERVO µs Mitte Wert im Servotester Modus (Sanwa), pro Kanal
+int SERVO_DEGREES[NUM_SERVO_CHANNELS];      // Volledige draaihoek in graden (bv. 90/180/360), pro Kanal
 
 bool WiFiChanged;
 
@@ -184,7 +186,9 @@ enum
 };
 
 // Sound
-#define BUZZER_PIN 4 // Active 3V buzzer
+#define BUZZER_PIN 4 // Passive buzzer, driven via LEDC tone
+#define BUZZER_LEDC_CHANNEL 4  // LEDC channel 2 is already used by the signal generator on GPIO 26
+#define BUZZER_TONE_HZ 2700    // Audible tone frequency for the passive buzzer
 int beepDuration;    // how long the beep will be
 
 // Oscilloscope pin
@@ -228,10 +232,7 @@ enum
   IBUS_lesen_Auswahl = 6,
   Oscilloscope_Auswahl = 7,
   SignalGenerator_Auswahl = 8,
-  Rechner_Auswahl = 9,
-  Pong_Auswahl = 10,
-  Flappy_Birds_Auswahl = 11,
-  Einstellung_Auswahl = 12,
+  Einstellung_Auswahl = 9,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -241,10 +242,7 @@ enum
   IBUS_lesen_Menu = 56,
   Oscilloscope_Menu = 57,
   SignalGenerator_Menu = 58,
-  Rechner_Menu = 59,
-  Flappy_Birds_Menu = 60,
-  Pong_Menu = 61,
-  Einstellung_Menu = 62
+  Einstellung_Menu = 59
 };
 
 //-Menu 52 Automatik Modus
@@ -314,22 +312,26 @@ float map_float(float x, float in_min, float in_max, float out_min, float out_ma
 // Convert µs to degrees (°)
 float us2degree(uint16_t value)
 {
-  return map_float(float(value), float(SERVO_MIN), float(SERVO_MAX), -45.0, 45.0);
+  float halfRange = SERVO_DEGREES[selectedServo] / 2.0;
+  return map_float(float(value), float(SERVO_MIN), float(SERVO_MAX), -halfRange, halfRange);
 }
 
 // buzzer control ------------------------------------------------------------------------------
 void beep()
 {
   static unsigned long buzzerTriggerMillis;
-  if (beepDuration > 0 && !digitalRead(BUZZER_PIN))
+  static bool buzzerOn; // Track state in software, don't rely on reading the driven pin back
+  if (beepDuration > 0 && !buzzerOn)
   {
-    digitalWrite(BUZZER_PIN, HIGH);
+    ledcWrite(BUZZER_LEDC_CHANNEL, 128); // 50% duty at BUZZER_TONE_HZ = audible tone on a passive buzzer
+    buzzerOn = true;
     buzzerTriggerMillis = millis();
   }
 
-  if (millis() - buzzerTriggerMillis >= beepDuration)
+  if (buzzerOn && millis() - buzzerTriggerMillis >= beepDuration)
   {
-    digitalWrite(BUZZER_PIN, LOW);
+    ledcWrite(BUZZER_LEDC_CHANNEL, 0); // Silence
+    buzzerOn = false;
     beepDuration = 0;
   }
 }
@@ -370,7 +372,10 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
   WAIT_FOR_PIN_STATE(!state);                                         // Signal going low
   WAIT_FOR_PIN_STATE(state);                                          // Signal going high again
 
-  return 1000000 / (clockCyclesToMicroseconds(cpu_hal_get_cycle_count() - pulse_start_cycle_count));
+  uint32_t periodUs = clockCyclesToMicroseconds(cpu_hal_get_cycle_count() - pulse_start_cycle_count);
+  if (periodUs == 0) // Noise on a floating/unconnected pin can produce back-to-back edges within 1µs
+    return 0;
+  return 1000000 / periodUs;
 }
 
 // Super fast analogRead() alternative ---------------------------------------------------------
@@ -391,9 +396,6 @@ int IRAM_ATTR local_adc1_read(int channel)
 }
 
 // Additional headers --------------------------------------------------------------------------
-#include "src/pong.h"            // A little pong game :-)
-#include "src/flappyBirds.h"     // A little flappy birds game :-)
-#include "src/calculator.h"      // A handy calculator
 #include "src/webInterface.h"    // Configuration website
 #include "src/servoModes.h"      // Servo operation profiles
 #include "src/oscilloscope.h"    // A handy oscilloscope
@@ -465,26 +467,7 @@ void wifiSetup()
 
     digitalWrite(BUZZER_PIN, LOW); // Buzzer off
 
-    // Show IP address
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 10, WiFiOnString[LANGUAGE]);
-    display.drawString(0, 26, ipAddressString[LANGUAGE]);
-    display.drawString(0, 42, IP.toString());
-    display.display();
-    delay(1500);
-
-    // Show SSID & Password
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 0, "SSID: ");
-    display.drawString(0, 16, ssid);
-    display.drawString(0, 32, passwordString[LANGUAGE]);
-    display.drawString(0, 48, password);
-    display.display();
-    delay(2000);
+    // SSID, password and IP are shown on demand in the Settings menu (Wifi item) instead of a boot popup
 
     Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
     WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
@@ -558,8 +541,9 @@ void setup()
   encoder.setFilter(1023);
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
 
-  // Speaker setup
-  pinMode(BUZZER_PIN, OUTPUT);
+  // Speaker setup (passive buzzer, needs a PWM tone rather than a flat digitalWrite)
+  ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
+  ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
 
   // Battery
   battery.attach(BATTERY_DETECT_PIN);
@@ -568,20 +552,12 @@ void setup()
   display.init();
   display.flipScreenVertically();
 
-  // Show logo
-  display.setFont(ArialMT_Plain_10);
-  display.drawXbm(0, 0, Logo_width, Logo_height, Logo_bits);
-  display.display();
-  delay(1250);
-
-  // Show software version
-  display.clear();
+  // Show splash screen
   display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 10, "Software Version:");
-  display.drawString(64, 26, String(codeVersion));
+  display.setFont(ArialMT_Plain_24);
+  display.drawString(64, 20, "Servo Tester");
   display.setFont(ArialMT_Plain_10);
-  display.drawString(64, 45, "TheDIYGuy999 version");
+  display.drawString(64, 48, String(codeVersion));
   display.display();
   delay(1250);
 
@@ -595,7 +571,16 @@ void setup()
   display.drawString(0, 36, doubleclickString[LANGUAGE]);
   display.drawString(0, 48, RotateKnobString[LANGUAGE]);
   display.display();
-  delay(4000);
+
+  unsigned long helpScreenStart = millis();
+  while (digitalRead(BUTTON_PIN) && millis() - helpScreenStart < 10000)
+  {
+    // Wait for a button press or a 10s timeout, whichever comes first
+  }
+  while (!digitalRead(BUTTON_PIN))
+  {
+    // Wait for button release, so the press doesn't leak into the main menu
+  }
 
   wifiSetup();
 
@@ -630,48 +615,65 @@ void setup()
 //
 void ButtonRead()
 {
+  static bool longPressFired; // Makes sure the long-press action fires only once per physical hold, so releasing afterwards isn't misread as a fresh short press
   if (!disableButtonRead)
   {
     buttonState = 0;
     if (!(digitalRead(BUTTON_PIN)))
     {                  // Button gedrückt 0
-      delay(bouncing); // Taster entprellen
-      prev1 = millis();
-      buttonState = 1;
-      while ((millis() - prev1) <= Duration_long)
+      if (!longPressFired)
       {
-        if (digitalRead(BUTTON_PIN))
-        {                  // Button losgelassen 1 innerhalb Zeit
-          delay(bouncing); // Taster entprellen
-          buttonState = 2;
-          prev2 = millis();
-          while ((millis() - prev2) <= Duration_double)
-          { // Doppelkick abwarten
-            if (!(digitalRead(BUTTON_PIN)))
-            {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
-              delay(bouncing); // Taster entprellen
-              buttonState = 3;
-              if (digitalRead(BUTTON_PIN))
-              { // Button losgelassen 1
-                break;
+        delay(bouncing); // Taster entprellen
+        prev1 = millis();
+        buttonState = 1;
+        while ((millis() - prev1) <= Duration_long)
+        {
+          if (digitalRead(BUTTON_PIN))
+          {                  // Button losgelassen 1 innerhalb Zeit
+            delay(bouncing); // Taster entprellen
+            buttonState = 2;
+            prev2 = millis();
+            while ((millis() - prev2) <= Duration_double)
+            { // Doppelkick abwarten
+              if (!(digitalRead(BUTTON_PIN)))
+              {                  // Button gedrückt 0 innerhalb Zeit Doppelklick
+                delay(bouncing); // Taster entprellen
+                buttonState = 3;
+                if (digitalRead(BUTTON_PIN))
+                { // Button losgelassen 1
+                  break;
+                }
               }
             }
+            break;
           }
-          break;
         }
-      }
-      while (!(digitalRead(BUTTON_PIN)))
-      { // Warten bis Button nicht gedückt ist = 1
-      }
-      Serial.print("Buttonstate: ");
-      Serial.println(buttonState);
 
-      if (buttonState == 1)
-        beepDuration = 20;
-      if (buttonState == 2)
-        beepDuration = 10;
-      if (buttonState == 3)
-        beepDuration = 30;
+        if (buttonState == 1) // Long press timed out while still held: act on it now, don't wait for release
+        {
+          longPressFired = true;
+        }
+        else
+        {
+          while (!(digitalRead(BUTTON_PIN)))
+          { // Warten bis Button nicht gedückt ist = 1
+          }
+        }
+
+        Serial.print("Buttonstate: ");
+        Serial.println(buttonState);
+
+        if (buttonState == 1)
+          beepDuration = 20;
+        if (buttonState == 2)
+          beepDuration = 10;
+        if (buttonState == 3)
+          beepDuration = 30;
+      }
+    }
+    else
+    {
+      longPressFired = false; // Button released, ready to detect a fresh press next time
     }
   }
 
@@ -1003,92 +1005,6 @@ void MenuUpdate()
     }
     break;
 
-    // Rechner Auswahl *********************************************************
-  case Rechner_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, calculatorString[LANGUAGE]);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, "No Warranty Edition");
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Rechner_Menu;
-    }
-    break;
-
-    // Pong Auswahl *********************************************************
-  case Pong_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "P  O  N  G");
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, "TheDIYGuy999 Edition");
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Pong_Menu;
-    }
-    break;
-
-    // Flappy Birds Auswahl *********************************************************
-  case Flappy_Birds_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Flappy Birds");
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, "TheDIYGuy999 Edition");
-    drawWiFi();
-    display.display();
-
-    disableButtonRead = false; // Re enable regular button read function
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Flappy_Birds_Menu;
-    }
-    break;
-
   // Einstellung Auswahl *********************************************************
   case Einstellung_Auswahl:
     display.clear();
@@ -1112,7 +1028,7 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Einstellung_Menu;
-      Einstellung = 5; // Pre select Servo frequency setting
+      Einstellung = 7; // Pre select Servo frequency setting
     }
     break;
 
@@ -1120,6 +1036,7 @@ void MenuUpdate()
 
   // Servotester *********************************************************
   case Servotester_Menu:
+    servoModes(); // Refresh servo operation mode for the currently selected channel
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.setFont(ArialMT_Plain_10);
@@ -1133,15 +1050,12 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "Servo" + String(selectedServo + 1));
     display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
+    display.drawProgressBar(8, 50, 112, 10, (SERVO_MAX != SERVO_MIN ? (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)) : 50));
     display.display();
     if (!SetupMenu)
     {
-      servo_pos[0] = SERVO_CENTER;
-      servo_pos[1] = SERVO_CENTER;
-      servo_pos[2] = SERVO_CENTER;
-      servo_pos[3] = SERVO_CENTER;
-      servo_pos[4] = SERVO_CENTER;
+      for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+        servo_pos[ch] = servoCenterForChannel(ch); // Each channel centers on its own calibrated value
       setupMcpwm();
       SetupMenu = true;
     }
@@ -1194,6 +1108,7 @@ void MenuUpdate()
 
   // Automatik Modus *********************************************************
   case Automatik_Modus_Menu:
+    servoModes(); // Refresh servo operation mode for the currently selected channel
     static unsigned long autoMenuMillis;
     int autoChange;
     if (millis() - autoMenuMillis > 20)
@@ -1221,18 +1136,15 @@ void MenuUpdate()
       }
       else
       {
-        display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)));
+        display.drawProgressBar(8, 50, 112, 10, (SERVO_MAX != SERVO_MIN ? (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)) : 50));
       }
       display.display();
     }
 
     if (!SetupMenu)
     {
-      servo_pos[0] = SERVO_CENTER;
-      servo_pos[1] = SERVO_CENTER;
-      servo_pos[2] = SERVO_CENTER;
-      servo_pos[3] = SERVO_CENTER;
-      servo_pos[4] = SERVO_CENTER;
+      for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+        servo_pos[ch] = servoCenterForChannel(ch); // Each channel centers on its own calibrated value
       setupMcpwm();
       TimeAuto = 50;      // Zeit für SERVO Steps +-
       Auto_Pause = false; // Pause aus
@@ -1357,13 +1269,13 @@ void MenuUpdate()
     // Switch progress bar range
     if (servo_pos[selectedServo] > 750) // Normal pulsewidth range
     {
-      Impuls_min = SERVO_MIN_STD;
-      Impuls_max = SERVO_MAX_STD;
+      Impuls_min = SERVO_MIN_STD[selectedServo];
+      Impuls_max = SERVO_MAX_STD[selectedServo];
     }
     else // Sanwa pulsewidth range
     {
-      Impuls_min = SERVO_MIN_SANWA;
-      Impuls_max = SERVO_MAX_SANWA;
+      Impuls_min = SERVO_MIN_SANWA[selectedServo];
+      Impuls_max = SERVO_MAX_SANWA[selectedServo];
     }
 
     // Enlarge range, if required
@@ -1390,7 +1302,7 @@ void MenuUpdate()
 
       if (pwmFreq > 1) // Only show progress bar, if we have a signal
       {
-        display.drawProgressBar(8, 50, 112, 10, (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)));
+        display.drawProgressBar(8, 50, 112, 10, (Impuls_max != Impuls_min ? (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)) : 50));
       }
       else
       {
@@ -1619,125 +1531,6 @@ void MenuUpdate()
     }
     break;
 
-    // Rechner *********************************************************
-  case Rechner_Menu:
-
-    static bool calculatorLeft;
-    static bool calculatorRight;
-    static bool calculatorSelect;
-    calculator(calculatorLeft, calculatorRight, calculatorSelect); // Run calculator
-
-    if (!SetupMenu) // This stuff is only executed once
-    {
-
-      SetupMenu = true;
-    }
-
-    if (encoderState == 1) // Left
-    {
-      calculatorLeft = true;
-      calculatorRight = false;
-    }
-    else if (encoderState == 2) // Right
-    {
-      calculatorRight = true;
-      calculatorLeft = false;
-    }
-    else // Cursor stop
-    {
-      calculatorLeft = false;
-      calculatorRight = false;
-    }
-
-    if (buttonState == 1) // Back
-    {
-      Menu = Rechner_Auswahl;
-      SetupMenu = false;
-    }
-
-    if (buttonState == 2) // Select
-    {
-      calculatorSelect = true;
-    }
-    else
-    {
-      calculatorSelect = false;
-    }
-    break;
-
-    // Pong spielen *********************************************************
-  case Pong_Menu:
-
-    static bool paddleUp;
-    static bool paddleDown;
-    static bool pongReset;
-    pong(paddleUp, paddleDown, pongReset, encoderSpeed); // Run pong game
-
-    if (!SetupMenu) // This stuff is only executed once
-    {
-
-      SetupMenu = true;
-    }
-
-    if (encoderState == 1) // Paddle up
-    {
-      paddleUp = true;
-      paddleDown = false;
-    }
-    else if (encoderState == 2) // Paddle down
-    {
-      paddleDown = true;
-      paddleUp = false;
-    }
-    else // Paddle stop
-    {
-      paddleUp = false;
-      paddleDown = false;
-    }
-
-    if (buttonState == 1) // Back
-    {
-      Menu = Pong_Auswahl;
-      SetupMenu = false;
-    }
-
-    if (buttonState == 2) // Reset
-    {
-      pongReset = true;
-    }
-    else
-    {
-      pongReset = false;
-    }
-    break;
-
-    // Flappy Birds spielen *********************************************************
-  case Flappy_Birds_Menu:
-
-    static bool flappyClick;
-    static unsigned long lastClick = millis();
-
-    disableButtonRead = true; // Disable button read function for Flappy Bird!
-
-    flappyBirds(flappyClick); // Run flappy birds game
-
-    if (!digitalRead(BUTTON_PIN)) // Button pressed
-    {
-      flappyClick = true;
-    }
-    else // Button released
-    {
-      flappyClick = false;
-      lastClick = millis();
-    }
-
-    if (millis() - lastClick > Duration_long) // Back, if pressed long
-    {
-      Menu = Flappy_Birds_Auswahl;
-      SetupMenu = false;
-    }
-    break;
-
   // Einstellung *********************************************************
   case Einstellung_Menu:
     batteryVolts(); // Read battery voltage
@@ -1753,6 +1546,9 @@ void MenuUpdate()
       if (WIFI_ON == 1)
       {
         display.drawString(64, 45, onString[LANGUAGE]);
+        display.setFont(ArialMT_Plain_10);
+        display.setTextAlignment(TEXT_ALIGN_LEFT);
+        display.drawString(0, 54, String(ssid) + " / " + String(password));
       }
       else
       {
@@ -1771,27 +1567,44 @@ void MenuUpdate()
       }
       break;
     case 2:
-      display.drawString(64, 25, servoMaxString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_MAX));
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(128, 50, servoMode);
+      display.drawString(64, 25, channelString[LANGUAGE]);
+      display.drawString(64, 45, String(selectedServo + 1));
       break;
     case 3:
-      display.drawString(64, 25, servoMinString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_MIN));
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(64, 25, servoMaxString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_MAX));
       display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
       display.drawString(128, 50, servoMode);
       break;
     case 4:
-      display.drawString(64, 25, servoCenterString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_CENTER));
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(64, 25, servoMinString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_MIN));
       display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
       display.drawString(128, 50, servoMode);
       break;
     case 5:
+      display.drawString(64, 25, servoCenterString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_CENTER));
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 50, servoMode);
+      break;
+    case 6:
+      display.drawString(64, 25, servoAngleString[LANGUAGE]);
+      display.drawString(64, 45, String(SERVO_DEGREES[selectedServo]) + (char)176);
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      break;
+    case 7:
       display.drawString(64, 25, servoHzString[LANGUAGE]);
       display.drawString(64, 45, String(SERVO_Hz));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -1803,7 +1616,7 @@ void MenuUpdate()
       display.drawString(128, 37, String(SERVO_MAX));
       display.drawString(128, 50, servoMode);
       break;
-    case 6:
+    case 8:
       display.drawString(64, 25, PowerScaleString[LANGUAGE]);
       display.drawString(64, 45, String(POWER_SCALE));
       display.setFont(ArialMT_Plain_10);
@@ -1812,7 +1625,7 @@ void MenuUpdate()
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.drawString(110, 50, "V");
       break;
-    case 7:
+    case 9:
       display.drawString(64, 25, "SBUS");
       if (SBUS_INVERTED == 1)
       {
@@ -1823,7 +1636,7 @@ void MenuUpdate()
         display.drawString(64, 45, inversedString[LANGUAGE]);
       }
       break;
-    case 8:
+    case 10:
       display.drawString(64, 25, encoderDirectionString[LANGUAGE]);
       if (ENCODER_INVERTED == 0)
       {
@@ -1834,13 +1647,9 @@ void MenuUpdate()
         display.drawString(64, 45, inversedString[LANGUAGE]);
       }
       break;
-    case 9:
+    case 11:
       display.drawString(64, 25, languageString[LANGUAGE]);
       display.drawString(64, 45, languagesString[LANGUAGE]);
-      break;
-    case 10:
-      display.drawString(64, 25, pongBallRateString[LANGUAGE]);
-      display.drawString(64, 45, String(PONG_BALL_RATE));
       break;
     }
     if (Edit)
@@ -1873,40 +1682,43 @@ void MenuUpdate()
           RESET_EEPROM--;
           break;
         case 2:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MAX_STD--;
-          else
-            SERVO_MAX_SANWA--;
+          selectedServo--; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 3:
           if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MIN_STD--;
+            SERVO_MAX_STD[selectedServo] -= encoderSpeed;
           else
-            SERVO_MIN_SANWA--;
+            SERVO_MAX_SANWA[selectedServo] -= encoderSpeed;
           break;
         case 4:
           if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_CENTER_STD--;
+            SERVO_MIN_STD[selectedServo] -= encoderSpeed;
           else
-            SERVO_CENTER_SANWA--;
+            SERVO_MIN_SANWA[selectedServo] -= encoderSpeed;
           break;
         case 5:
-          SERVO_MODE--;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_CENTER_STD[selectedServo] -= encoderSpeed;
+          else
+            SERVO_CENTER_SANWA[selectedServo] -= encoderSpeed;
           break;
         case 6:
-          POWER_SCALE--;
+          SERVO_DEGREES[selectedServo] -= encoderSpeed;
           break;
         case 7:
-          SBUS_INVERTED--;
+          SERVO_MODE--;
           break;
         case 8:
-          ENCODER_INVERTED--;
+          POWER_SCALE--;
           break;
         case 9:
-          LANGUAGE--;
+          SBUS_INVERTED--;
           break;
         case 10:
-          PONG_BALL_RATE--;
+          ENCODER_INVERTED--;
+          break;
+        case 11:
+          LANGUAGE--;
           break;
         }
       }
@@ -1929,64 +1741,67 @@ void MenuUpdate()
           RESET_EEPROM++;
           break;
         case 2:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MAX_STD++;
-          else
-            SERVO_MAX_SANWA++;
+          selectedServo++; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 3:
           if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MIN_STD++;
+            SERVO_MAX_STD[selectedServo] += encoderSpeed;
           else
-            SERVO_MIN_SANWA++;
+            SERVO_MAX_SANWA[selectedServo] += encoderSpeed;
           break;
         case 4:
           if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_CENTER_STD++;
+            SERVO_MIN_STD[selectedServo] += encoderSpeed;
           else
-            SERVO_CENTER_SANWA++;
+            SERVO_MIN_SANWA[selectedServo] += encoderSpeed;
           break;
         case 5:
-          SERVO_MODE++;
+          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+            SERVO_CENTER_STD[selectedServo] += encoderSpeed;
+          else
+            SERVO_CENTER_SANWA[selectedServo] += encoderSpeed;
           break;
         case 6:
-          POWER_SCALE++;
+          SERVO_DEGREES[selectedServo] += encoderSpeed;
           break;
         case 7:
-          SBUS_INVERTED++;
+          SERVO_MODE++;
           break;
         case 8:
-          ENCODER_INVERTED++;
+          POWER_SCALE++;
           break;
         case 9:
-          LANGUAGE++;
+          SBUS_INVERTED++;
           break;
         case 10:
-          PONG_BALL_RATE++;
+          ENCODER_INVERTED++;
+          break;
+        case 11:
+          LANGUAGE++;
           break;
         }
       }
     }
 
     // Menu range -------------------------------------
-    if (Einstellung > 10)
+    if (Einstellung > 11)
     {
       Einstellung = 0;
     }
     else if (Einstellung < 0)
     {
-      Einstellung = 10;
+      Einstellung = 11;
     }
 
     // Limits -----------------------------------------
-    if (PONG_BALL_RATE < 1)
-    { // Pong ball rate nicht unter 1
-      PONG_BALL_RATE = 1;
+    if (selectedServo < 0)
+    { // Servo channel nicht unter 0
+      selectedServo = 0;
     }
 
-    if (PONG_BALL_RATE > 4)
-    { // Pong ball rate nicht über 4
-      PONG_BALL_RATE = 4;
+    if (selectedServo > 4)
+    { // Servo channel nicht über 4
+      selectedServo = 4;
     }
 
     if (LANGUAGE < 0)
@@ -2039,14 +1854,17 @@ void MenuUpdate()
       RESET_EEPROM = 1;
     }
 
-    SERVO_MIN_STD = constrain(SERVO_MIN_STD, 750, 1200);
-    SERVO_MIN_SANWA = constrain(SERVO_MIN_SANWA, 100, 200);
+    // Full 200-3000µs range allowed: no built-in safety margin, some servos may hit their mechanical end stop
+    SERVO_MIN_STD[selectedServo] = constrain(SERVO_MIN_STD[selectedServo], 200, 3000);
+    SERVO_MIN_SANWA[selectedServo] = constrain(SERVO_MIN_SANWA[selectedServo], 100, 200);
 
-    SERVO_CENTER_STD = constrain(SERVO_CENTER_STD, 1400, 1600);
-    SERVO_CENTER_SANWA = constrain(SERVO_CENTER_SANWA, 250, 350);
+    SERVO_CENTER_STD[selectedServo] = constrain(SERVO_CENTER_STD[selectedServo], 200, 3000);
+    SERVO_CENTER_SANWA[selectedServo] = constrain(SERVO_CENTER_SANWA[selectedServo], 250, 350);
 
-    SERVO_MAX_STD = constrain(SERVO_MAX_STD, 1800, 2250);
-    SERVO_MAX_SANWA = constrain(SERVO_MAX_SANWA, 400, 500);
+    SERVO_MAX_STD[selectedServo] = constrain(SERVO_MAX_STD[selectedServo], 200, 3000);
+    SERVO_MAX_SANWA[selectedServo] = constrain(SERVO_MAX_SANWA[selectedServo], 400, 500);
+
+    SERVO_DEGREES[selectedServo] = constrain(SERVO_DEGREES[selectedServo], 10, 360);
 
     servoModes(); // Refresh servo operation mode
 
@@ -2079,6 +1897,15 @@ void MenuUpdate()
       else
       {
         Edit = true;
+      }
+    }
+
+    if (buttonState == 3) // Double click: always jump to the next servo channel, regardless of which item is selected
+    {
+      selectedServo++;
+      if (selectedServo > 4)
+      {
+        selectedServo = 0;
       }
     }
     break;
@@ -2161,8 +1988,15 @@ void batteryVolts()
 // Init new board with the default values you want ------
 void eepromInit()
 {
-  Serial.println(SERVO_MIN_STD);
-  if (SERVO_MIN_STD < 50 || RESET_EEPROM) // Automatic or manual reset
+  bool anyChannelInvalid = false;
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    Serial.println(SERVO_MIN_STD[ch]);
+    if (SERVO_MIN_STD[ch] < 50)
+      anyChannelInvalid = true;
+  }
+
+  if (anyChannelInvalid || RESET_EEPROM) // Automatic (any channel still uninitialized) or manual reset
   {
     RESET_EEPROM = 0;
 
@@ -2177,14 +2011,17 @@ void eepromInit()
     SBUS_INVERTED = 1; // 1 = Standard signal!
     ENCODER_INVERTED = 0;
     LANGUAGE = 0;
-    PONG_BALL_RATE = 1;
     SERVO_MODE = STD;
-    SERVO_MAX_STD = 2000;
-    SERVO_MIN_STD = 1000;
-    SERVO_CENTER_STD = 1500;
-    SERVO_MAX_SANWA = 470;
-    SERVO_MIN_SANWA = 130;
-    SERVO_CENTER_SANWA = 300;
+    for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+    {
+      SERVO_MAX_STD[ch] = 2000;
+      SERVO_MIN_STD[ch] = 1000;
+      SERVO_CENTER_STD[ch] = 1500;
+      SERVO_MAX_SANWA[ch] = 470;
+      SERVO_MIN_SANWA[ch] = 130;
+      SERVO_CENTER_SANWA[ch] = 300;
+      SERVO_DEGREES[ch] = 90;
+    }
     Serial.println(eepromInitString[LANGUAGE]);
     servoModes(); // servoModes() needs to be executed in order to actualize the values TODO
     eepromWrite();
@@ -2204,14 +2041,17 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
-  EEPROM.writeInt(adr_eprom_PONG_BALL_RATE, PONG_BALL_RATE);
   EEPROM.writeInt(adr_eprom_SERVO_MODE, SERVO_MODE);
-  EEPROM.writeInt(adr_eprom_SERVO_MAX_STD, SERVO_MAX_STD);
-  EEPROM.writeInt(adr_eprom_SERVO_MIN_STD, SERVO_MIN_STD);
-  EEPROM.writeInt(adr_eprom_SERVO_CENTER_STD, SERVO_CENTER_STD);
-  EEPROM.writeInt(adr_eprom_SERVO_MAX_SANWA, SERVO_MAX_SANWA);
-  EEPROM.writeInt(adr_eprom_SERVO_MIN_SANWA, SERVO_MIN_SANWA);
-  EEPROM.writeInt(adr_eprom_SERVO_CENTER_SANWA, SERVO_CENTER_SANWA);
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    EEPROM.writeInt(adr_eprom_SERVO_MAX_STD(ch), SERVO_MAX_STD[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_MIN_STD(ch), SERVO_MIN_STD[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_CENTER_STD(ch), SERVO_CENTER_STD[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_MAX_SANWA(ch), SERVO_MAX_SANWA[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_MIN_SANWA(ch), SERVO_MIN_SANWA[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_CENTER_SANWA(ch), SERVO_CENTER_SANWA[ch]);
+    EEPROM.writeInt(adr_eprom_SERVO_DEGREES(ch), SERVO_DEGREES[ch]);
+  }
 
   EEPROM.commit();
   Serial.println(eepromWrittenString[LANGUAGE]);
@@ -2230,14 +2070,28 @@ void eepromRead()
   SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
   ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
   LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
-  PONG_BALL_RATE = EEPROM.readInt(adr_eprom_PONG_BALL_RATE);
   SERVO_MODE = EEPROM.readInt(adr_eprom_SERVO_MODE);
-  SERVO_MAX_STD = EEPROM.readInt(adr_eprom_SERVO_MAX_STD);
-  SERVO_MIN_STD = EEPROM.readInt(adr_eprom_SERVO_MIN_STD);
-  SERVO_CENTER_STD = EEPROM.readInt(adr_eprom_SERVO_CENTER_STD);
-  SERVO_MAX_SANWA = EEPROM.readInt(adr_eprom_SERVO_MAX_SANWA);
-  SERVO_MIN_SANWA = EEPROM.readInt(adr_eprom_SERVO_MIN_SANWA);
-  SERVO_CENTER_SANWA = EEPROM.readInt(adr_eprom_SERVO_CENTER_SANWA);
+
+  // Freshly appended EEPROM bytes aren't reliably blank/zero, so a value range check alone can't tell
+  // "never written" apart from "genuinely holds this value" - a layout version marker can.
+  bool layoutJustChanged = (EEPROM.readInt(adr_eprom_LAYOUT_VERSION) != EEPROM_LAYOUT_VERSION);
+
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    SERVO_MAX_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_MAX_STD(ch));
+    SERVO_MIN_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_MIN_STD(ch));
+    SERVO_CENTER_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_CENTER_STD(ch));
+    SERVO_MAX_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_MAX_SANWA(ch));
+    SERVO_MIN_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_MIN_SANWA(ch));
+    SERVO_CENTER_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_CENTER_SANWA(ch));
+    SERVO_DEGREES[ch] = layoutJustChanged ? 90 : EEPROM.readInt(adr_eprom_SERVO_DEGREES(ch));
+  }
+
+  if (layoutJustChanged)
+  {
+    EEPROM.writeInt(adr_eprom_LAYOUT_VERSION, EEPROM_LAYOUT_VERSION);
+    eepromWrite();
+  }
 
   servoModes(); // servoModes() needs to be executed in order to actualize the values
 
@@ -2255,14 +2109,16 @@ void eepromRead()
   if (LANGUAGE > noOfLanguages)
     LANGUAGE = noOfLanguages;
   Serial.println(LANGUAGE);
-  Serial.println(PONG_BALL_RATE);
   Serial.println(SERVO_MODE);
-  Serial.println(SERVO_MAX_STD);
-  Serial.println(SERVO_MIN_STD);
-  Serial.println(SERVO_CENTER_STD);
-  Serial.println(SERVO_MAX_SANWA);
-  Serial.println(SERVO_MIN_SANWA);
-  Serial.println(SERVO_CENTER_SANWA);
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    Serial.println(SERVO_MAX_STD[ch]);
+    Serial.println(SERVO_MIN_STD[ch]);
+    Serial.println(SERVO_CENTER_STD[ch]);
+    Serial.println(SERVO_MAX_SANWA[ch]);
+    Serial.println(SERVO_MIN_SANWA[ch]);
+    Serial.println(SERVO_CENTER_SANWA[ch]);
+  }
 }
 
 //
