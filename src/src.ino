@@ -100,7 +100,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4         // Deprecated, calculated automaticallly
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 1         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 2         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -554,8 +554,8 @@ void setup()
 
   // Show splash screen
   display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_24);
-  display.drawString(64, 20, "Servo Tester");
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 22, "Servo Tester");
   display.setFont(ArialMT_Plain_10);
   display.drawString(64, 48, String(codeVersion));
   display.display();
@@ -1067,11 +1067,11 @@ void MenuUpdate()
 
     if (encoderState == 1) // Left turn
     {
-      servo_pos[selectedServo] = servo_pos[selectedServo] - (SERVO_STEPS * encoderSpeed); // Variable encoder speed
+      servo_pos[selectedServo] = servo_pos[selectedServo] - encoderSpeed; // 1us per tick, faster turns cover more ground
     }
     if (encoderState == 2) // Right turn
     {
-      servo_pos[selectedServo] = servo_pos[selectedServo] + (SERVO_STEPS * encoderSpeed);
+      servo_pos[selectedServo] = servo_pos[selectedServo] + encoderSpeed;
     }
 
     if (servo_pos[selectedServo] > SERVO_MAX) // Servo MAX
@@ -2089,6 +2089,11 @@ void eepromRead()
 
   if (layoutJustChanged)
   {
+    // One-time cleanup: channel 1 was left with an extreme 362-3000us test range, well past what a
+    // typical servo can physically reach. Bring it back to a sane full-range default.
+    SERVO_MIN_STD[0] = 500;
+    SERVO_MAX_STD[0] = 2500;
+
     EEPROM.writeInt(adr_eprom_LAYOUT_VERSION, EEPROM_LAYOUT_VERSION);
     eepromWrite();
   }
