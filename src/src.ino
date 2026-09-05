@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.2"; // Software revision.
+char codeVersion[] = "0.3"; // Software revision.
 
 //
 // =======================================================================================================
@@ -123,6 +123,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 // EEPROM Speicher der Einstellungen
 int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
+String wifiIpString = ""; // AP IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
 int SERVO_MIN;          // Deprecated, controlled by servoModes.h
@@ -375,8 +376,8 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
 }
 
 // Additional headers --------------------------------------------------------------------------
-#include "src/webInterface.h"    // Configuration website
 #include "src/servoModes.h"      // Servo operation profiles
+#include "src/webInterface.h"    // Configuration website
 #include "src/systemImages.h"    // Symbols
 
 //
@@ -441,6 +442,7 @@ void wifiSetup()
     IPAddress IP = WiFi.softAPIP();
     Serial.print(apIpAddressString[LANGUAGE]);
     Serial.println(IP);
+    wifiIpString = IP.toString();
 
     digitalWrite(BUZZER_PIN, LOW); // Buzzer off
 
@@ -1409,10 +1411,9 @@ void MenuUpdate()
     if (WIFI_ON == 1)
     {
       display.drawString(64, 0, "Wifi: " + onString[LANGUAGE]);
-      display.drawString(64, 16, "SSID:");
-      display.drawString(64, 27, String(ssid));
-      display.drawString(64, 43, passwordString[LANGUAGE] + ":");
-      display.drawString(64, 54, String(password));
+      display.drawString(64, 14, "SSID: " + String(ssid));
+      display.drawString(64, 28, passwordString[LANGUAGE] + " " + String(password));
+      display.drawString(64, 42, ipAddressString[LANGUAGE] + " " + wifiIpString);
     }
     else
     {
