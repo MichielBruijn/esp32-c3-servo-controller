@@ -32,7 +32,7 @@
  GPIO 22: SDL OLED
  */
 
-char codeVersion[] = "0.16-beta.2"; // Software revision.
+char codeVersion[] = "0.2"; // Software revision.
 
 //
 // =======================================================================================================
@@ -100,7 +100,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_SERVO_STEPS 4         // Deprecated, calculated automaticallly
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 2         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 3         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -108,6 +108,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
 #define adr_eprom_ENCODER_INVERTED 32   // Encoder inverted
 #define adr_eprom_LANGUAGE 36           // Gewählte Sprache
+#define adr_eprom_SPEED_CURVE 40        // Encoder speed curve exponent x10 (reused from the old removed PONG_BALL_RATE address)
 #define adr_eprom_SERVO_MODE 44         // Servo operation mode
 
 // SERVO µs Max/Min/Center per servo channel (0-4), Standard and Sanwa mode groups, 24 bytes (6 ints) per channel
@@ -131,6 +132,7 @@ int POWER_SCALE;        // Skalierung für Akkuspannungs-Messung
 int SBUS_INVERTED;      // SBUS inverted
 int ENCODER_INVERTED;   // Encoder inverted
 int LANGUAGE;           // Gewählte Sprache
+int SPEED_CURVE;        // Encoder speed curve exponent x10 (e.g. 19 = 1.9)
 int SERVO_MODE;         // New servo parameters starting here
 int SERVO_MAX_STD[NUM_SERVO_CHANNELS];      // SERVO µs Max Wert im Servotester Modus (Standard), pro Kanal
 int SERVO_MIN_STD[NUM_SERVO_CHANNELS];      // SERVO µs Min Wert im Servotester Modus (Standard), pro Kanal
@@ -150,7 +152,6 @@ ESP32Encoder encoder;
 #define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
 long prev1 = 0;               // Zeitspeicher für Taster
 long prev2 = 0;               // Zeitspeicher für Taster
-long previousDebouncTime = 0; // Speicher Entprellzeit für Taster
 int buttonState = 0;          // 0 = Taster nicht betätigt; 1 = Taster langer Druck; 2 = Taster kurzer Druck; 3 = Taster Doppelklick
 int encoderState = 0;         // 1 = Drehung nach Links (-); 2 = Drehung nach Rechts (+)
 int Duration_long = 600;      // Zeit für langen Druck
@@ -191,9 +192,6 @@ enum
 #define BUZZER_TONE_HZ 2700    // Audible tone frequency for the passive buzzer
 int beepDuration;    // how long the beep will be
 
-// Oscilloscope pin
-#define OSCILLOSCOPE_PIN 32 // ADC 1 pin only! Don't change it, oscilloscope is hardcoded!
-
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 32 // pin 13
 #define COMMAND_TX -1 // -1 is just a dummy
@@ -230,9 +228,8 @@ enum
   Multiswitch_lesen_Auswahl = 4,
   SBUS_lesen_Auswahl = 5,
   IBUS_lesen_Auswahl = 6,
-  Oscilloscope_Auswahl = 7,
-  SignalGenerator_Auswahl = 8,
-  Einstellung_Auswahl = 9,
+  WifiInfo_Auswahl = 7,
+  Einstellung_Auswahl = 8,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -240,9 +237,8 @@ enum
   Multiswitch_lesen_Menu = 54,
   SBUS_lesen_Menu = 55,
   IBUS_lesen_Menu = 56,
-  Oscilloscope_Menu = 57,
-  SignalGenerator_Menu = 58,
-  Einstellung_Menu = 59
+  WifiInfo_Menu = 57,
+  Einstellung_Menu = 58
 };
 
 //-Menu 52 Automatik Modus
@@ -378,28 +374,9 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
   return 1000000 / periodUs;
 }
 
-// Super fast analogRead() alternative ---------------------------------------------------------
-// See: https://www.toptal.com/embedded/esp32-audio-sampling
-
-int IRAM_ATTR local_adc1_read(int channel)
-{
-  uint16_t adc_value;
-  SENS.sar_meas_start1.sar1_en_pad = (1 << channel); // only one channel is selected
-  while (SENS.sar_slave_addr1.meas_status != 0)
-    ;
-  SENS.sar_meas_start1.meas1_start_sar = 0;
-  SENS.sar_meas_start1.meas1_start_sar = 1;
-  while (SENS.sar_meas_start1.meas1_done_sar == 0)
-    ;
-  adc_value = SENS.sar_meas_start1.meas1_data_sar;
-  return adc_value;
-}
-
 // Additional headers --------------------------------------------------------------------------
 #include "src/webInterface.h"    // Configuration website
 #include "src/servoModes.h"      // Servo operation profiles
-#include "src/oscilloscope.h"    // A handy oscilloscope
-#include "src/signalGenerator.h" // A handy signal generator
 #include "src/systemImages.h"    // Symbols
 
 //
@@ -679,11 +656,10 @@ void ButtonRead()
 
   // Encoder -------------------------------------------------------------------------------------------------
   encoder_read = encoder.getCount(); // Read encoder --------------
-
-  if (previousDebouncTime + 10 > millis()) // Debouncing 10ms -------------
-  {
-    encoder_last = encoder_read;
-  }
+  // Note: no software debounce/throttle here on purpose. The hardware pulse counter is already
+  // glitch-filtered (encoder.setFilter() in setup()), and a time-based software debounce previously
+  // here was re-syncing encoder_last to encoder_read within its window, silently dropping any tick
+  // that followed within 10ms of the last one - exactly the fast turns we want to register.
 
   static unsigned long encoderSpeedMillis;
   static int lastEncoderSpeed;
@@ -692,48 +668,33 @@ void ButtonRead()
   {
     encoderSpeedMillis = millis();
     encoderSpeed = abs(encoder_read - lastEncoderSpeed);
-    encoderSpeed = constrain(encoderSpeed, 1, 15); // (15 was 4)
+    encoderSpeed = constrain(encoderSpeed, 1, 15);
+    encoderSpeed = (int)round(pow(encoderSpeed, SPEED_CURVE / 10.0)); // Power-law ramp, exponent adjustable in Settings ("Speed Curve")
 
     // Serial.println(encoderSpeed); // For encoder speed debuggging
 
     lastEncoderSpeed = encoder_read;
   }
 
-  if (encoder_last > encoder_read) // Left turn detected --------------
+  // This encoder's mechanical detent (the "click" you feel) reports as 2 raw quadrature counts,
+  // with no reliable timing gap between them (it varies with turning speed and even direction
+  // reversal), so a fixed settle-timeout can't tell "both halves of one click" apart from "a
+  // lone stray count". Comparing counts in whole-detent units (raw count / 2) sidesteps the
+  // timing question entirely: a physical click always moves this value by exactly 1, however
+  // its 2 raw counts are spaced out in time.
+  int currentDetent = encoder_read / 2;
+  int lastDetent = encoder_last / 2;
+
+  encoderState = 0;
+  if (currentDetent > lastDetent)
   {
-    if (encoder_last > encoder_read + 1)
-    {
-      if (ENCODER_INVERTED)
-      {
-        encoderState = 2; // right
-      }
-      else
-      {
-        encoderState = 1; // left
-      }
-      encoder_last = encoder_read;
-      previousDebouncTime = millis();
-    }
+    encoderState = ENCODER_INVERTED ? 1 : 2; // right (or left if inverted)
+    encoder_last = encoder_read;
   }
-  else if (encoder_last < encoder_read) // Right turn detected --------------
+  else if (currentDetent < lastDetent)
   {
-    if (encoder_last < encoder_read - 1)
-    {
-      if (ENCODER_INVERTED)
-      {
-        encoderState = 1; // left
-      }
-      else
-      {
-        encoderState = 2; // right
-      }
-      encoder_last = encoder_read;
-      previousDebouncTime = millis();
-    }
-  }
-  else
-  {
-    encoderState = 0;
+    encoderState = ENCODER_INVERTED ? 2 : 1; // left (or right if inverted)
+    encoder_last = encoder_read;
   }
 }
 
@@ -774,20 +735,9 @@ void MenuUpdate()
     drawWiFi();
     if (batteryDetected)
     {
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(30, 50, String(batteryVoltage));
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(30, 50, "V");
-
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(64, 50, String(numberOfBatteryCells));
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(64, 50, "S");
-
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(115, 50, String(batteryChargePercentage, 0));
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(115, 50, "%");
+      display.setFont(ArialMT_Plain_16);
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 45, String(batteryVoltage, 2) + "V");
     }
     else
     {
@@ -949,16 +899,16 @@ void MenuUpdate()
     }
     break;
 
-    // Oszilloskop Auswahl *********************************************************
-  case Oscilloscope_Auswahl:
+    // Wifi Info Auswahl *********************************************************
+  case WifiInfo_Auswahl:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
+    display.drawString(64, 25, wifiInfoString[LANGUAGE]);
     display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+    display.drawString(64, 45, WIFI_ON == 1 ? onString[LANGUAGE] : offString[LANGUAGE]);
     drawWiFi();
     display.display();
 
@@ -973,35 +923,7 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = Oscilloscope_Menu;
-    }
-    break;
-
-    // Signal Generator Auswahl *********************************************************
-  case SignalGenerator_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = SignalGenerator_Menu;
+      Menu = WifiInfo_Menu;
     }
     break;
 
@@ -1479,55 +1401,30 @@ void MenuUpdate()
     }
     break;
 
-    // Oszilloskop *********************************************************
-  case Oscilloscope_Menu:
-
-    if (!SetupMenu) // This stuff is only executed once
+  // Wifi Info *********************************************************
+  case WifiInfo_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_10);
+    if (WIFI_ON == 1)
     {
-      pinMode(servopin[0], INPUT);
-      pinMode(servopin[1], INPUT);
-      pinMode(servopin[2], INPUT);
-      pinMode(servopin[3], INPUT);
-      pinMode(servopin[4], INPUT);
-      pinMode(OSCILLOSCOPE_PIN, INPUT);
-      oscilloscopeLoop(true); // Init oscilloscope
-      SetupMenu = true;
+      display.drawString(64, 0, "Wifi: " + onString[LANGUAGE]);
+      display.drawString(64, 16, "SSID:");
+      display.drawString(64, 27, String(ssid));
+      display.drawString(64, 43, passwordString[LANGUAGE] + ":");
+      display.drawString(64, 54, String(password));
     }
     else
     {
-      oscilloscopeLoop(false); // Loop oscilloscope code
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 25, "Wifi");
+      display.drawString(64, 45, offString[LANGUAGE]);
     }
+    display.display();
 
-    if (buttonState == 1) // Back
+    if (buttonState == 1)
     {
-      Menu = Oscilloscope_Auswahl;
-      SetupMenu = false;
-    }
-    break;
-
-    // Signal Generator *********************************************************
-  case SignalGenerator_Menu:
-
-    if (!SetupMenu) // This stuff is only executed once
-    {
-      pinMode(servopin[0], INPUT);
-      pinMode(servopin[1], INPUT);
-      pinMode(servopin[2], INPUT);
-      pinMode(servopin[3], INPUT);
-      pinMode(servopin[4], INPUT);
-      pinMode(OSCILLOSCOPE_PIN, INPUT);
-      signalGeneratorLoop(true); // Init signal generator
-      SetupMenu = true;
-    }
-    else
-    {
-      signalGeneratorLoop(false); // Loop signal generator
-    }
-
-    if (buttonState == 1) // Back
-    {
-      Menu = SignalGenerator_Auswahl;
-      SetupMenu = false;
+      Menu = WifiInfo_Auswahl;
     }
     break;
 
@@ -1536,7 +1433,7 @@ void MenuUpdate()
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
+    display.setFont(ArialMT_Plain_10);
     display.drawString(64, 0, settingsString[LANGUAGE]);
     display.setFont(ArialMT_Plain_16);
     switch (Einstellung)
@@ -1546,9 +1443,6 @@ void MenuUpdate()
       if (WIFI_ON == 1)
       {
         display.drawString(64, 45, onString[LANGUAGE]);
-        display.setFont(ArialMT_Plain_10);
-        display.setTextAlignment(TEXT_ALIGN_LEFT);
-        display.drawString(0, 54, String(ssid) + " / " + String(password));
       }
       else
       {
@@ -1617,13 +1511,11 @@ void MenuUpdate()
       display.drawString(128, 50, servoMode);
       break;
     case 8:
-      display.drawString(64, 25, PowerScaleString[LANGUAGE]);
-      display.drawString(64, 45, String(POWER_SCALE));
       display.setFont(ArialMT_Plain_10);
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(110, 50, String(batteryVoltage));
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(110, 50, "V");
+      display.drawString(64, 20, PowerScaleString[LANGUAGE]);
+      display.drawString(64, 31, String(POWER_SCALE));
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 45, String(batteryVoltage, 2) + "V");
       break;
     case 9:
       display.drawString(64, 25, "SBUS");
@@ -1648,8 +1540,8 @@ void MenuUpdate()
       }
       break;
     case 11:
-      display.drawString(64, 25, languageString[LANGUAGE]);
-      display.drawString(64, 45, languagesString[LANGUAGE]);
+      display.drawString(64, 25, speedCurveString[LANGUAGE]);
+      display.drawString(64, 45, String(SPEED_CURVE / 10.0, 1));
       break;
     }
     if (Edit)
@@ -1718,7 +1610,7 @@ void MenuUpdate()
           ENCODER_INVERTED--;
           break;
         case 11:
-          LANGUAGE--;
+          SPEED_CURVE--;
           break;
         }
       }
@@ -1777,7 +1669,7 @@ void MenuUpdate()
           ENCODER_INVERTED++;
           break;
         case 11:
-          LANGUAGE++;
+          SPEED_CURVE++;
           break;
         }
       }
@@ -1803,6 +1695,8 @@ void MenuUpdate()
     { // Servo channel nicht über 4
       selectedServo = 4;
     }
+
+    SPEED_CURVE = constrain(SPEED_CURVE, 10, 40); // Exponent x10: 1.0 (linear) to 4.0 (very aggressive)
 
     if (LANGUAGE < 0)
     { // Language nicht unter 0
@@ -2011,6 +1905,7 @@ void eepromInit()
     SBUS_INVERTED = 1; // 1 = Standard signal!
     ENCODER_INVERTED = 0;
     LANGUAGE = 0;
+    SPEED_CURVE = 19;
     SERVO_MODE = STD;
     for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
     {
@@ -2041,6 +1936,7 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
+  EEPROM.writeInt(adr_eprom_SPEED_CURVE, SPEED_CURVE);
   EEPROM.writeInt(adr_eprom_SERVO_MODE, SERVO_MODE);
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
@@ -2075,6 +1971,10 @@ void eepromRead()
   // Freshly appended EEPROM bytes aren't reliably blank/zero, so a value range check alone can't tell
   // "never written" apart from "genuinely holds this value" - a layout version marker can.
   bool layoutJustChanged = (EEPROM.readInt(adr_eprom_LAYOUT_VERSION) != EEPROM_LAYOUT_VERSION);
+
+  // This address used to hold the removed PONG_BALL_RATE setting, so on the migration boot its old
+  // value must be discarded rather than reused as SPEED_CURVE.
+  SPEED_CURVE = layoutJustChanged ? 19 : EEPROM.readInt(adr_eprom_SPEED_CURVE);
 
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {

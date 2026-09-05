@@ -1,10 +1,9 @@
 #include <Arduino.h>
 // Language ressources strings for OLED menus
 
-int noOfLanguages = 2; // 0 = English, 1 = Deutsch, 2 = Francais
+int noOfLanguages = 2; // 0 = English, 1 = Deutsch, 2 = Francais - LANGUAGE is fixed at 0 (English), kept as a bounds check only
 
 // Einstellung
-String languagesString[] {"English", "Deutsch", "Français"};
 String settingsString[]{"Settings", "Einstellung", "Paramètres"};
 String onString[]{"On", "Ein", "activé"};
 String offString[]{"Off", "Aus", "désactivé"};
@@ -22,7 +21,7 @@ String PowerScaleString[] {"POWER Scale", "POWER Skala", "échelle POWER"};
 String inversedString[] {"Inversed", "Invertiert", "Inversé"};
 String standardString[] {"Standard", "Standart", "Défaut"};
 String encoderDirectionString[] {"Encoder direction", "Encoder Richtung", "Encodeur direct."};
-String languageString[] {"Language", "Sprache", "Langue"};
+String speedCurveString[] {"Speed Curve", "Geschw. Kurve", "Courbe vitesse"};
 
 // Impuls lesen
 String impulseString[] {"Impulse", "Impuls", "Impulsion"};
@@ -40,10 +39,7 @@ String readCh1Ch5String[] {"read CH1 - 5", "lesen CH1 - 5", "lire CH1 - 5"};
 String PwmImpulseString[] {"PWM Impulse", "PWM Impuls", "PWM Impulsion"};
 String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat."};
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
-String readOscilloscopeString[] {"Oscilloscope CH5", "Oszilloskop CH5", "Oscilloscope CH5"};
-String readOscilloscopeString2[] {"0- 3.3V Signals only", "Nur 0 - 3.3V Signale", "Signaux 0 - 3.3V uniquem."};
-String signalGeneratorString[] {"Signal Generator", "Signal Generator", "Générat. de signal"};
-String signalGeneratorString2[] {"0 - 3.3V GPIO 26", "0 - 3.3V  GPIO 26", "0 - 3.3V  GPIO 26"};
+String wifiInfoString[] {"Wifi Info", "Wifi Info", "Info Wifi"};
 
 // Setup
 String passwordString[] {"Password:", "Passwort:", "Mot de passe:"};

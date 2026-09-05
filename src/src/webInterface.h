@@ -172,14 +172,6 @@ void webInterface()
               {
                 Menu = IBUS_lesen_Menu;
               }
-              if (header.indexOf("GET /70/on") >= 0)
-              {
-                Menu = Oscilloscope_Menu;
-              }
-              if (header.indexOf("GET /80/on") >= 0)
-              {
-                Menu = SignalGenerator_Menu;
-              }
               if (header.indexOf("GET /120/on") >= 0)
               {
                 Menu = Einstellung_Menu;
@@ -394,8 +386,6 @@ void webInterface()
                 client.println("<p><a href=\"/40/on\"><button class=\"button button1\">PPM Multiswitch lesen</button></a></p>");
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">SBUS lesen</button></a></p>");
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">IBUS lesen</button></a></p>");
-                client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Oszilloskop</button></a></p>");
-                client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Einstellung</button></a></p>");
                 break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
               }
