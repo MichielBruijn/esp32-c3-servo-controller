@@ -295,7 +295,7 @@ void webInterface()
                   client.println("<p><h3>Servo " + String(ch + 1) + " Microseconds: <span id=\"textServo" + String(ch) + "SliderValue\">" + valueString + "</span>");
                   client.println("<a href=\"/mitte" + String(ch + 1) + "/on\"><button class=\"button button1\">Center</button></a></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(chMin, DEC) + "\" max=\"" + String(chMax, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo" + String(ch) + "Slider\" onchange=\"Servo" + String(ch) + "Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<input type=\"range\" min=\"" + String(chMin, DEC) + "\" max=\"" + String(chMax, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo" + String(ch) + "Slider\" oninput=\"Servo" + String(ch) + "Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
