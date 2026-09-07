@@ -32,9 +32,10 @@
  GPIO 22: SDL OLED
 
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
+ GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.13"; // Software revision.
+char codeVersion[] = "0.14"; // Software revision.
 
 //
 // =======================================================================================================
@@ -165,6 +166,7 @@ bool WiFiChanged;
 ESP32Encoder encoder;
 
 #define BUTTON_PIN 15         // Hardware Pin Button
+#define BOOT_BUTTON_PIN 0     // Onboard BOOT button, repurposed at runtime as a channel++ shortcut
 #define ENCODER_PIN_1 16      // Hardware Pin1 Encoder
 #define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
 long prev1 = 0;               // Zeitspeicher für Taster
@@ -654,6 +656,7 @@ void setup()
   encoder.attachHalfQuad(ENCODER_PIN_1, ENCODER_PIN_2);
   encoder.setFilter(1023);
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP); // BOOT button, only read after boot completes - GPIO0's strapping role is over by then
 
   // Speaker setup (passive buzzer, needs a PWM tone rather than a flat digitalWrite)
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
@@ -841,6 +844,21 @@ void ButtonRead()
     encoder_last = encoder_read;
     encoderLedDuration = ENCODER_LED_FLASH_MS; // Flash the click LED for this detent
   }
+
+  // BOOT button ---------------------------------------------------------------------------------
+  // Extra physical shortcut for "next channel", so you don't need the encoder's double-click for it.
+  static bool lastBootButtonState = HIGH;
+  static unsigned long bootButtonMillis;
+  bool bootButtonState = digitalRead(BOOT_BUTTON_PIN);
+  if (bootButtonState == LOW && lastBootButtonState == HIGH && millis() - bootButtonMillis > bouncing)
+  {
+    bootButtonMillis = millis();
+    selectedServo++;
+    if (selectedServo > NUM_SERVO_CHANNELS - 1)
+      selectedServo = 0;
+    encoderLedDuration = ENCODER_LED_FLASH_MS; // Same click feedback as the encoder button/detent
+  }
+  lastBootButtonState = bootButtonState;
 }
 
 //
