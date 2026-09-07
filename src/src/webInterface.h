@@ -388,6 +388,23 @@ void webInterface()
               client.println("  xhr.open('GET', url, true);");
               client.println("  xhr.send();");
               client.println("}");
+              // Low-latency channel for live servo position updates while dragging (port 81, see
+              // WebSocketsServer in src.ino). A plain HTTP request per tick - even throttled - still
+              // pays a fresh TCP handshake and full header parse each time, which is what made a
+              // sustained drag feel laggy. Falls back to the throttled HTTP path (sendThrottled)
+              // until the socket is open, or if it ever drops.
+              client.println("var posSocket = null, posSocketReady = false;");
+              client.println("function connectPosSocket() {");
+              client.println("  posSocket = new WebSocket('ws://' + location.hostname + ':81/');");
+              client.println("  posSocket.onopen = function() { posSocketReady = true; };");
+              client.println("  posSocket.onclose = function() { posSocketReady = false; setTimeout(connectPosSocket, 1000); };");
+              client.println("  posSocket.onerror = function() { posSocketReady = false; };");
+              client.println("}");
+              client.println("connectPosSocket();");
+              client.println("function sendPos(ch, pos) {");
+              client.println("  if (posSocketReady && posSocket.readyState === 1) { posSocket.send('Pos' + ch + '=' + pos); }");
+              client.println("  else { sendThrottled('Pos' + ch, '/?Pos' + ch + '=' + pos + '&'); }");
+              client.println("}");
               client.println("</script></head>");
 
               // Page heading
@@ -412,7 +429,7 @@ void webInterface()
 
                   client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
-                  client.println("sendThrottled('Pos" + String(ch) + "', \"/?Pos" + String(ch) + "=\" + pos + \"&\");");
+                  client.println("sendPos(" + String(ch) + ", pos);");
                   client.println("}");
                   // Center button: update the slider and label instantly client-side (no page
                   // reload), reusing the same throttled endpoint the slider itself already uses -

@@ -34,7 +34,7 @@
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  */
 
-char codeVersion[] = "0.11"; // Software revision.
+char codeVersion[] = "0.12"; // Software revision.
 
 //
 // =======================================================================================================
@@ -78,6 +78,7 @@ Array                                         1.0.0
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
 #include <ESPmDNS.h>       // Reachable as http://servotester.local when joined to an existing network (Station mode)
+#include <WebSocketsServer.h> // Low-latency channel for live servo position updates while dragging a web slider
 #include <EEPROM.h>          // for non volatile storage
 #include <Esp.h>             // for displaying memory information
 #include "rom/rtc.h"         // for displaying reset reason
@@ -293,6 +294,41 @@ SH1106Wire display(0x3c, SDA, SCL); // Oled Hardware an SDA 21 und SCL 22
 
 // Webserver auf Port 80
 WiFiServer server(80);
+
+// Low-latency WebSocket channel (port 81), used only for live servo position updates while
+// dragging a slider in the web interface - a plain HTTP request per tick (even throttled) still
+// pays a fresh TCP handshake and full header parse each time, which is what made a sustained drag
+// feel laggy compared to a real RC stick. Everything else (page navigation, settings) stays on the
+// existing HTTP server.
+WebSocketsServer webSocket(81);
+
+// Handle incoming WebSocket frames - the only message this expects is "Pos<ch>=<value>",
+// e.g. "Pos0=1500", mirroring the /?Pos0= HTTP query key. The browser already clamps to that
+// channel's calibrated Min/Max via the slider's own min/max attributes, same as the HTTP path.
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
+{
+  if (type != WStype_TEXT)
+    return;
+
+  String msg;
+  msg.reserve(length);
+  for (size_t i = 0; i < length; i++)
+    msg += (char)payload[i];
+
+  if (msg.startsWith("Pos") && msg.length() > 4)
+  {
+    int equalsPos = msg.indexOf('=');
+    if (equalsPos > 3)
+    {
+      int ch = msg.substring(3, equalsPos).toInt();
+      int value = msg.substring(equalsPos + 1).toInt();
+      if (ch >= 0 && ch < NUM_SERVO_CHANNELS)
+      {
+        servo_pos[ch] = value;
+      }
+    }
+  }
+}
 
 // Speicher HTTP request
 String header;
@@ -519,6 +555,8 @@ void wifiSetup()
         Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
 
         server.begin(); // Start Webserver
+        webSocket.begin();
+        webSocket.onEvent(webSocketEvent);
         return;
       }
 
@@ -547,12 +585,15 @@ void wifiSetup()
     Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
 
     server.begin(); // Start Webserver
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent);
   }
 
   // WiFi off
   else
   {
     server.end();
+    webSocket.close();
     WiFi.mode(WIFI_OFF);
     Serial.println("");
     Serial.println(WiFiOffString[LANGUAGE]);
@@ -2206,6 +2247,8 @@ void loop()
   flashEncoderLed();
   MenuUpdate();
   webInterface();
+  if (WIFI_ON == 1)
+    webSocket.loop();
   // Serial.print(loopDuration());
 }
 
