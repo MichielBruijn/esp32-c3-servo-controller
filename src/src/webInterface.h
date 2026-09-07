@@ -280,26 +280,9 @@ void webInterface()
                 xhrOnly = true;
               }
 
-              if (header.indexOf("GET /mitte1/on") >= 0)
-              {
-                servo_pos[0] = servoCenterForChannel(0); // Center
-              }
-              if (header.indexOf("GET /mitte2/on") >= 0)
-              {
-                servo_pos[1] = servoCenterForChannel(1); // Center
-              }
-              if (header.indexOf("GET /mitte3/on") >= 0)
-              {
-                servo_pos[2] = servoCenterForChannel(2); // Center
-              }
-              if (header.indexOf("GET /mitte4/on") >= 0)
-              {
-                servo_pos[3] = servoCenterForChannel(3); // Center
-              }
-              if (header.indexOf("GET /mitte5/on") >= 0)
-              {
-                servo_pos[4] = servoCenterForChannel(4); // Center
-              }
+              // Center buttons now just call Servo{ch}Speed() with the known center value client-side
+              // (see the Servotester_Menu render below), reusing the already-fast /?PosN= endpoint
+              // instead of a separate full-page navigation that used to make Center feel slow.
               if (header.indexOf("GET /back/on") >= 0)
               {
                 Menu = Servotester_Auswahl;
@@ -419,16 +402,24 @@ void webInterface()
                 {
                   int chMin = inStdMode ? SERVO_MIN_STD[ch] : SERVO_MIN_SANWA[ch];
                   int chMax = inStdMode ? SERVO_MAX_STD[ch] : SERVO_MAX_SANWA[ch];
+                  int chCenterVal = servoCenterForChannel(ch);
                   valueString = String(servo_pos[ch], DEC);
 
                   client.println("<p><h3>Servo " + String(ch + 1) + " Microseconds: <span id=\"textServo" + String(ch) + "SliderValue\">" + valueString + "</span>");
-                  client.println("<a href=\"/mitte" + String(ch + 1) + "/on\"><button class=\"button button1\">Center</button></a></p>");
+                  client.println("<button class=\"button button1\" onclick=\"centerServo" + String(ch) + "()\">Center</button></p>");
 
                   client.println("<input type=\"range\" min=\"" + String(chMin, DEC) + "\" max=\"" + String(chMax, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo" + String(ch) + "Slider\" oninput=\"Servo" + String(ch) + "Speed(this.value)\" value=\"" + valueString + "\" /></p>");
 
                   client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
                   client.println("sendThrottled('Pos" + String(ch) + "', \"/?Pos" + String(ch) + "=\" + pos + \"&\");");
+                  client.println("}");
+                  // Center button: update the slider and label instantly client-side (no page
+                  // reload), reusing the same throttled endpoint the slider itself already uses -
+                  // this used to be a full page navigation, which is why it felt slow.
+                  client.println("function centerServo" + String(ch) + "() {");
+                  client.println("document.getElementById(\"Servo" + String(ch) + "Slider\").value = " + String(chCenterVal) + ";");
+                  client.println("Servo" + String(ch) + "Speed(" + String(chCenterVal) + ");");
                   client.println("} </script>");
                 }
 

@@ -34,7 +34,7 @@
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  */
 
-char codeVersion[] = "0.10"; // Software revision.
+char codeVersion[] = "0.11"; // Software revision.
 
 //
 // =======================================================================================================
