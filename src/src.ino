@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.22"; // Software revision.
+char codeVersion[] = "0.23"; // Software revision.
 
 //
 // =======================================================================================================
@@ -718,6 +718,9 @@ void setup()
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP); // BOOT button, only read after boot completes - GPIO0's strapping role is over by then
   joystickXRawMin = joystickXRawMax = joystickYRawMin = joystickYRawMax = JOYSTICK_ADC_CENTER;
+  // 11dB is already this core's default (full 0-3.3V ADC range), set explicitly for certainty
+  analogSetPinAttenuation(JOYSTICK_X_PIN, ADC_11db);
+  analogSetPinAttenuation(JOYSTICK_Y_PIN, ADC_11db);
 
   // Speaker setup (passive buzzer, needs a PWM tone rather than a flat digitalWrite)
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
