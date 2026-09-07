@@ -34,7 +34,7 @@
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  */
 
-char codeVersion[] = "0.9"; // Software revision.
+char codeVersion[] = "0.10"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1063,21 +1063,32 @@ void MenuUpdate()
   // Servotester *********************************************************
   case Servotester_Menu:
     servoModes(); // Refresh servo operation mode for the currently selected channel
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 10, "Hz");
-    display.drawString(0, 20, String(SERVO_Hz));
-    display.drawString(0, 35, servoMode);
-    display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(128, 10, "°");
-    display.drawString(128, 20, String(us2degree(servo_pos[selectedServo])));
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "Servo" + String(selectedServo + 1));
-    display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
-    display.drawProgressBar(8, 50, 112, 10, (SERVO_MAX != SERVO_MIN ? (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)) : 50));
-    display.display();
+
+    // The OLED flush over I2C costs ~20ms+ on its own; redrawing it unconditionally on every single
+    // loop() iteration capped the whole loop (and with it, how often incoming web requests could be
+    // read byte-by-byte) at that same low rate. Throttling it here - same pattern as the pulse-read
+    // screen elsewhere - frees up the loop to service the web interface immediately instead of only
+    // between display flushes, which is what made dragging the web slider feel laggy/jerky.
+    static unsigned long servoMenuMillis;
+    if (millis() - servoMenuMillis > 50) // Every 50ms (~20fps, still smooth to the eye)
+    {
+      servoMenuMillis = millis();
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(0, 10, "Hz");
+      display.drawString(0, 20, String(SERVO_Hz));
+      display.drawString(0, 35, servoMode);
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 10, "°");
+      display.drawString(128, 20, String(us2degree(servo_pos[selectedServo])));
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 0, "Servo" + String(selectedServo + 1));
+      display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
+      display.drawProgressBar(8, 50, 112, 10, (SERVO_MAX != SERVO_MIN ? (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)) : 50));
+      display.display();
+    }
     if (!SetupMenu)
     {
       for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)

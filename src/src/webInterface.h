@@ -45,6 +45,10 @@ void webInterface()
 
     if (client)
     { // If a new client connects,
+      client.setNoDelay(true); // Disable Nagle's algorithm - these are tiny packets sent back to
+                                // back during a slider drag, and Nagle/delayed-ACK interaction can
+                                // stall each one by tens of ms waiting to coalesce with more data
+                                // that's never coming.
       currentTime = millis();
       previousTime = currentTime;
       Serial.println("New Client."); // print a message out in the serial port
