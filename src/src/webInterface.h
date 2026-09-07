@@ -253,6 +253,20 @@ void webInterface()
                   WiFiChanged = true;
                 }
               }
+              if (header.indexOf("GET /?JoyX=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                JOYSTICK_X_CHANNEL = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
+              }
+              if (header.indexOf("GET /?JoyY=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                JOYSTICK_Y_CHANNEL = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
+              }
               // Home WiFi credentials for Station mode - URL-decoded and length-capped to fit the
               // reserved EEPROM slots (32 chars SSID / 64 chars password), so an oversized value
               // can never spill into the neighbouring field.
@@ -578,6 +592,23 @@ void webInterface()
                 client.println("<script> function StaPassChange(val) { ");
                 client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
                 client.println("} </script>");
+
+                // Joystick channel mapping (optional analog joystick, see the wiring notes) -----
+                client.println("<p><h3>Joystick X -> Channel</h3>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyX=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
+
+                client.println("<p><h3>Joystick Y -> Channel</h3>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyY=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");

@@ -33,9 +33,13 @@
 
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
+
+ GPIO 34: Joystick X axis (ADC1, input-only)
+ GPIO 35: Joystick Y axis (ADC1, input-only)
+ GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.15"; // Software revision.
+char codeVersion[] = "0.16"; // Software revision.
 
 //
 // =======================================================================================================
@@ -99,16 +103,19 @@ using namespace std;
 #define SERVO_CHANNEL_DATA_START 48
 #define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * 24) // 24 bytes (6 ints) per servo channel
 #define WIFI_STA_DATA_START (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
-#define EEPROM_SIZE (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
+#define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
+#define EEPROM_SIZE (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 4         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 5         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
+#define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
+#define adr_eprom_JOYSTICK_Y_CHANNEL (JOYSTICK_DATA_START + 4)
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -140,6 +147,8 @@ int WIFI_MODE;           // 0 = Access Point, 1 = Station, see WifiModeEnum abov
 String STA_SSID = "";     // Home WiFi network SSID to join in Station mode, entered via the web interface
 String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode, entered via the web interface
 bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
+int JOYSTICK_X_CHANNEL;  // Which servo channel (0-4) the joystick's X axis drives
+int JOYSTICK_Y_CHANNEL;  // Which servo channel (0-4) the joystick's Y axis drives
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
@@ -167,6 +176,15 @@ ESP32Encoder encoder;
 
 #define BUTTON_PIN 15         // Hardware Pin Button
 #define BOOT_BUTTON_PIN 0     // Onboard BOOT button, repurposed at runtime as a channel++ shortcut
+
+// Optional analog joystick - X/Y axes each drive a configurable servo channel directly (position
+// control, like an RC stick), click button re-centers both mapped channels.
+#define JOYSTICK_X_PIN 34        // ADC1 channel, input-only
+#define JOYSTICK_Y_PIN 35        // ADC1 channel, input-only
+#define JOYSTICK_BUTTON_PIN 26
+#define JOYSTICK_ADC_MAX 4095    // 12-bit ADC
+#define JOYSTICK_ADC_CENTER 2048
+#define JOYSTICK_DEADZONE 150    // +/- around center that snaps to the channel's calibrated Center, absorbs mechanical/ADC noise at rest
 #define ENCODER_PIN_1 16      // Hardware Pin1 Encoder
 #define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
 long prev1 = 0;               // Zeitspeicher für Taster
@@ -210,6 +228,7 @@ enum
 #define BUZZER_LEDC_CHANNEL 4  // LEDC channel 2 is already used by the signal generator on GPIO 26
 #define BUZZER_TONE_HZ 2700    // Audible tone frequency for the passive buzzer
 int beepDuration;    // how long the beep will be
+bool pewPewTrigger;  // Set true to start the joystick button's "pew pew" laser sound
 
 // Encoder click LED, next to the power LED
 #define ENCODER_LED_PIN 2 // Flashes on every encoder detent
@@ -243,6 +262,7 @@ float batteryChargePercentage; // Akkuspannung in Prozent
  * 5 = SBUS_lesen_Auswahl        Auswahl -> 55 SBUS_lesen_Menu
  * 6 = Einstellung_Auswahl       Auswahl -> 56 Einstellung_Menu
  * 9 = Info_Auswahl              Auswahl -> 59 Info_Menu
+ * 10 = Joystick_Auswahl         Auswahl -> 60 Joystick_Menu
  * etc.
  */
 enum
@@ -256,6 +276,7 @@ enum
   WifiInfo_Auswahl = 7,
   Einstellung_Auswahl = 8,
   Info_Auswahl = 9,
+  Joystick_Auswahl = 10,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -265,7 +286,8 @@ enum
   IBUS_lesen_Menu = 56,
   WifiInfo_Menu = 57,
   Einstellung_Menu = 58,
-  Info_Menu = 59
+  Info_Menu = 59,
+  Joystick_Menu = 60
 };
 
 //-Menu 52 Automatik Modus
@@ -391,6 +413,38 @@ void beep()
     ledcWrite(BUZZER_LEDC_CHANNEL, 0); // Silence
     buzzerOn = false;
     beepDuration = 0;
+  }
+}
+
+// "Pew pew" laser sound for the joystick click button --------------------------------------------
+// Non-blocking descending frequency sweep on the same buzzer channel as beep(), so it never runs
+// at the same time as a plain beep (pewPewTrigger and beepDuration are never both set together).
+void pewPew()
+{
+  static unsigned long pewPewStartMillis;
+  static bool pewPewActive;
+  const unsigned long pewPewDuration = 150; // ms, total sweep length
+
+  if (pewPewTrigger)
+  {
+    pewPewTrigger = false;
+    pewPewActive = true;
+    pewPewStartMillis = millis();
+  }
+
+  if (pewPewActive)
+  {
+    unsigned long elapsed = millis() - pewPewStartMillis;
+    if (elapsed >= pewPewDuration)
+    {
+      ledcWriteTone(BUZZER_LEDC_CHANNEL, 0); // Silence
+      pewPewActive = false;
+    }
+    else
+    {
+      int freq = map(elapsed, 0, pewPewDuration, 3000, 400); // High pitch down to low = laser zap
+      ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
+    }
   }
 }
 
@@ -1126,7 +1180,7 @@ void MenuUpdate()
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu  ");
+    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, "Info");
     drawWiFi();
@@ -1138,12 +1192,38 @@ void MenuUpdate()
     }
     if (encoderState == 2)
     {
-      Menu = Info_Auswahl;
+      Menu++;
     }
 
     if (buttonState == 2)
     {
       Menu = Info_Menu;
+    }
+    break;
+
+  // Joystick Auswahl *********************************************************
+  case Joystick_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu  ");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "Joystick");
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu = Joystick_Auswahl;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Joystick_Menu;
     }
     break;
 
@@ -1659,6 +1739,76 @@ void MenuUpdate()
     }
     break;
 
+  // Joystick *********************************************************
+  case Joystick_Menu:
+  {
+    static unsigned long joystickMenuMillis;
+    if (millis() - joystickMenuMillis > 50) // Same refresh rate as Servotester_Menu
+    {
+      joystickMenuMillis = millis();
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 0, "Joystick");
+      display.drawString(64, 16, "X->CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + "us");
+      display.drawString(64, 28, "Y->CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + "us");
+      display.drawString(64, 48, "Click centers both");
+      display.display();
+    }
+
+    if (!SetupMenu)
+    {
+      setupMcpwm();
+      pinMode(JOYSTICK_BUTTON_PIN, INPUT_PULLUP);
+      SetupMenu = true;
+    }
+
+    bool inStdMode = (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR);
+    int xMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
+    int xMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
+    int yMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
+    int yMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+
+    int rawX = analogRead(JOYSTICK_X_PIN);
+    int rawY = analogRead(JOYSTICK_Y_PIN);
+
+    // Deadzone snaps to the calibrated Center, so mechanical/ADC noise at rest doesn't twitch the servo
+    servo_pos[JOYSTICK_X_CHANNEL] = (abs(rawX - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
+                                         ? servoCenterForChannel(JOYSTICK_X_CHANNEL)
+                                         : map(rawX, 0, JOYSTICK_ADC_MAX, xMin, xMax);
+    servo_pos[JOYSTICK_Y_CHANNEL] = (abs(rawY - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
+                                         ? servoCenterForChannel(JOYSTICK_Y_CHANNEL)
+                                         : map(rawY, 0, JOYSTICK_ADC_MAX, yMin, yMax);
+
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, servo_pos[2]);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_B, servo_pos[3]);
+    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[4]);
+
+    // Joystick click button: re-centers both mapped channels, and fires the "pew pew" laser sound
+    // (not a plain beep - both share the buzzer, and pew pew is the whole point of this button)
+    static bool lastJoystickButtonState = HIGH;
+    static unsigned long joystickButtonMillis;
+    bool joystickButtonState = digitalRead(JOYSTICK_BUTTON_PIN);
+    if (joystickButtonState == LOW && lastJoystickButtonState == HIGH && millis() - joystickButtonMillis > bouncing)
+    {
+      joystickButtonMillis = millis();
+      servo_pos[JOYSTICK_X_CHANNEL] = servoCenterForChannel(JOYSTICK_X_CHANNEL);
+      servo_pos[JOYSTICK_Y_CHANNEL] = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
+      encoderLedDuration = ENCODER_LED_FLASH_MS;
+      pewPewTrigger = true;
+    }
+    lastJoystickButtonState = joystickButtonState;
+
+    if (buttonState == 1)
+    {
+      Menu = Joystick_Auswahl;
+      SetupMenu = false;
+    }
+    break;
+  }
+
   // Einstellung *********************************************************
   case Einstellung_Menu:
     batteryVolts(); // Read battery voltage
@@ -1785,6 +1935,14 @@ void MenuUpdate()
         display.drawString(64, 45, "Access Point");
       }
       break;
+    case 13:
+      display.drawString(64, 25, "Joystick X");
+      display.drawString(64, 45, "CH" + String(JOYSTICK_X_CHANNEL + 1));
+      break;
+    case 14:
+      display.drawString(64, 25, "Joystick Y");
+      display.drawString(64, 45, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
+      break;
     }
     if (Edit)
     {
@@ -1858,6 +2016,12 @@ void MenuUpdate()
           WIFI_MODE--;
           WiFiChanged = true;
           break;
+        case 13:
+          JOYSTICK_X_CHANNEL--;
+          break;
+        case 14:
+          JOYSTICK_Y_CHANNEL--;
+          break;
         }
       }
     }
@@ -1921,18 +2085,24 @@ void MenuUpdate()
           WIFI_MODE++;
           WiFiChanged = true;
           break;
+        case 13:
+          JOYSTICK_X_CHANNEL++;
+          break;
+        case 14:
+          JOYSTICK_Y_CHANNEL++;
+          break;
         }
       }
     }
 
     // Menu range -------------------------------------
-    if (Einstellung > 12)
+    if (Einstellung > 14)
     {
       Einstellung = 0;
     }
     else if (Einstellung < 0)
     {
-      Einstellung = 12;
+      Einstellung = 14;
     }
 
     // Limits -----------------------------------------
@@ -1948,6 +2118,8 @@ void MenuUpdate()
 
     SPEED_CURVE = constrain(SPEED_CURVE, 10, 40); // Exponent x10: 1.0 (linear) to 4.0 (very aggressive)
     WIFI_MODE = constrain(WIFI_MODE, WIFI_AP_MODE, WIFI_STATION_MODE);
+    JOYSTICK_X_CHANNEL = constrain(JOYSTICK_X_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
+    JOYSTICK_Y_CHANNEL = constrain(JOYSTICK_Y_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
 
     if (LANGUAGE < 0)
     { // Language nicht unter 0
@@ -2150,6 +2322,8 @@ void eepromInit()
     WIFI_MODE = WIFI_AP_MODE; // Factory reset always drops back to the always-reachable Access Point
     STA_SSID = "";
     STA_PASSWORD = ""; // Factory reset must not leave a saved home WiFi password behind
+    JOYSTICK_X_CHANNEL = 0; // CH1
+    JOYSTICK_Y_CHANNEL = 1; // CH2
     // SERVO_STEPS = 10;
     // SERVO_MAX = 2000;
     // SERVO_MIN = 1000;
@@ -2184,6 +2358,8 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_WIFI_MODE, WIFI_MODE);
   EEPROM.writeString(adr_eprom_STA_SSID, STA_SSID);
   EEPROM.writeString(adr_eprom_STA_PASSWORD, STA_PASSWORD);
+  EEPROM.writeInt(adr_eprom_JOYSTICK_X_CHANNEL, JOYSTICK_X_CHANNEL);
+  EEPROM.writeInt(adr_eprom_JOYSTICK_Y_CHANNEL, JOYSTICK_Y_CHANNEL);
   // EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
   //  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
   //  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
@@ -2249,6 +2425,9 @@ void eepromRead()
     STA_PASSWORD = EEPROM.readString(adr_eprom_STA_PASSWORD);
   }
 
+  JOYSTICK_X_CHANNEL = constrain(layoutJustChanged ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+  JOYSTICK_Y_CHANNEL = constrain(layoutJustChanged ? 1 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
     SERVO_MAX_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_MAX_STD(ch));
@@ -2310,6 +2489,7 @@ void loop()
 
   ButtonRead();
   beep();
+  pewPew();
   flashEncoderLed();
   MenuUpdate();
   webInterface();

@@ -25,6 +25,7 @@ All credit for the original firmware architecture (MCPWM servo generation, signa
 - Powered via USB (small servos) or a LiPo battery, 2S-6S (larger loads)
 - 0.96" (SSD1306) or 1.3" (SH1106) OLED display
 - Web interface with the same settings and channel calibration as the OLED menu, reachable either via the device's own WiFi access point or, once configured, by joining your home WiFi network (`http://servotester.local`) — servo position sliders track a drag in real time (low-latency WebSocket channel), close to RC-stick feel
+- Optional analog joystick: X and Y axes each drive any servo channel you assign to them (direct position control, deadzone around center), click button re-centers both and fires a "pew pew" sound
 
 ## Changes in this fork
 
@@ -44,6 +45,7 @@ Compared to the upstream [TheDIYGuy999/Servotester_Deluxe](https://github.com/Th
 - **Real-time web servo control**: the position sliders update live while dragging (not just on release), over a dedicated low-latency WebSocket channel (port 81) instead of one HTTP request per tick — close to RC-stick feel instead of a laggy, catch-up motion. Falls back to plain HTTP automatically if the socket isn't connected. The Center button and page navigation are instant too (no more full-page reload for a single click).
 - **BOOT button repurposed**: the ESP32 board's onboard BOOT button (unused once the device has booted) now works as a "next channel" shortcut, with the same click LED/beep feedback as the encoder.
 - **Info menu + link**: a new "Info" item in the OLED menu, and a link at the bottom of every web page, point back to this repository - so anyone who finds the device can find the source and build their own.
+- **Optional analog joystick**: a new "Joystick" menu drives two servo channels directly from a 2-axis analog stick (deadzone snaps to the calibrated Center so it doesn't twitch at rest). Which channel is X and which is Y is configurable, from the OLED Settings menu or the web Settings page. The stick's click button re-centers both mapped channels and plays a "pew pew" sound.
 - **WiFi Station mode**: besides the device's own Access Point, it can now join an existing WiFi network instead (Settings menu or web Settings page — SSID/password are entered via the web interface). Once joined, it's reachable at `http://servotester.local` (mDNS) from any computer on that network, without disconnecting from your own WiFi/internet to reach it. If the configured network can't be joined within 10s, it automatically falls back to its own Access Point so it's never left unreachable.
 - **Removed the oscilloscope function, the Pong and Flappy Bird games, and the Calculator** to simplify the firmware and free up flash space.
 - **Custom hardware**: this fork is not built on the original PCB — see [Wiring](#wiring) below for the GPIO pinout, which works with any ESP32 DevKit + I2C OLED + 5-pin rotary encoder breadboard build.
@@ -74,9 +76,12 @@ Any ESP32 DevKit board works — connect an I2C OLED, a 5-pin rotary encoder wit
 | BOOT button ("next channel" shortcut) | 0 | Onboard button on most ESP32 DevKit boards, no extra wiring needed |
 | Encoder click LED | 2 | LED + ~220-330Ω series resistor to GND, mounted next to the power LED |
 | Battery voltage sense | 36 | Input-only ADC pin; needs an external resistor divider to bring pack voltage (up to 6S/~25.2V) under 3.3V — the divider ratio is calibrated in software via the "Power Scale" setting, no fixed resistor values required |
+| Joystick X axis (VRx) | 34 | Input-only ADC pin, optional |
+| Joystick Y axis (VRy) | 35 | Input-only ADC pin, optional |
+| Joystick click button (SW) | 26 | Optional; most joystick breakout modules already have their own pull-up |
 
 Power: USB 5V is enough for small servos. For anything drawing more current, feed the servos from a separate 2S-6S LiPo/BEC rather than the ESP32's own 5V pin — powering servos directly off the ESP32 board's regulator causes voltage-drop jitter on the PWM signal.
 
 ## Menu
 
-Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Wifi Info, and Settings.
+Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Wifi Info, Settings, Info, and Joystick.
