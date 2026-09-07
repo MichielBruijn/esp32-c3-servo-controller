@@ -30,9 +30,11 @@
 
  GPIO 21: SDA OLED
  GPIO 22: SDL OLED
+
+ GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  */
 
-char codeVersion[] = "0.3"; // Software revision.
+char codeVersion[] = "0.4"; // Software revision.
 
 //
 // =======================================================================================================
@@ -193,6 +195,11 @@ enum
 #define BUZZER_TONE_HZ 2700    // Audible tone frequency for the passive buzzer
 int beepDuration;    // how long the beep will be
 
+// Encoder click LED, next to the power LED
+#define ENCODER_LED_PIN 2 // Flashes on every encoder detent
+#define ENCODER_LED_FLASH_MS 15 // Flash duration per click
+int encoderLedDuration; // ms remaining for the current flash, 0 = off
+
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 32 // pin 13
 #define COMMAND_TX -1 // -1 is just a dummy
@@ -330,6 +337,27 @@ void beep()
     ledcWrite(BUZZER_LEDC_CHANNEL, 0); // Silence
     buzzerOn = false;
     beepDuration = 0;
+  }
+}
+
+// encoder click LED control ---------------------------------------------------------------------
+void flashEncoderLed()
+{
+  static unsigned long ledTriggerMillis;
+  static bool ledOn; // Track state in software, don't rely on reading the driven pin back
+
+  if (encoderLedDuration > 0 && !ledOn)
+  {
+    digitalWrite(ENCODER_LED_PIN, HIGH);
+    ledOn = true;
+    ledTriggerMillis = millis();
+  }
+
+  if (ledOn && millis() - ledTriggerMillis >= encoderLedDuration)
+  {
+    digitalWrite(ENCODER_LED_PIN, LOW);
+    ledOn = false;
+    encoderLedDuration = 0;
   }
 }
 
@@ -524,6 +552,10 @@ void setup()
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
   ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
 
+  // Encoder click LED setup
+  pinMode(ENCODER_LED_PIN, OUTPUT);
+  digitalWrite(ENCODER_LED_PIN, LOW);
+
   // Battery
   battery.attach(BATTERY_DETECT_PIN);
 
@@ -692,11 +724,13 @@ void ButtonRead()
   {
     encoderState = ENCODER_INVERTED ? 1 : 2; // right (or left if inverted)
     encoder_last = encoder_read;
+    encoderLedDuration = ENCODER_LED_FLASH_MS; // Flash the click LED for this detent
   }
   else if (currentDetent < lastDetent)
   {
     encoderState = ENCODER_INVERTED ? 2 : 1; // left (or right if inverted)
     encoder_last = encoder_read;
+    encoderLedDuration = ENCODER_LED_FLASH_MS; // Flash the click LED for this detent
   }
 }
 
@@ -2038,6 +2072,7 @@ void loop()
 
   ButtonRead();
   beep();
+  flashEncoderLed();
   MenuUpdate();
   webInterface();
   // Serial.print(loopDuration());
