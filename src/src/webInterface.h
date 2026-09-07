@@ -74,6 +74,15 @@ void webInterface()
 
               bool inStdMode = (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR);
 
+              // These query keys are only ever fired from a slider/textbox's fire-and-forget
+              // XHR (see oninput handlers below) - the JS never reads the response, so re-rendering
+              // and sending the full settings/servo page HTML for every single one is pure wasted
+              // time. That extra round-trip time is what made dragging a slider feel jerky: while
+              // the ESP32's single-threaded server was still busy sending the previous full page,
+              // the next XHR just queued up behind it. Skipping straight to an empty response for
+              // these keeps each request short, so drag updates keep up in real time.
+              bool xhrOnly = false;
+
               // GET /?Pos0=1500& HTTP/1.1
               if (header.indexOf("GET /?Pos0=") >= 0)
               {
@@ -81,6 +90,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[0] = (valueString.toInt());
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos1=") >= 0)
               {
@@ -88,6 +98,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[1] = (valueString.toInt());
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos2=") >= 0)
               {
@@ -95,6 +106,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[2] = (valueString.toInt());
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos3=") >= 0)
               {
@@ -102,6 +114,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[3] = (valueString.toInt());
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos4=") >= 0)
               {
@@ -109,6 +122,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[4] = (valueString.toInt());
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Speed=") >= 0)
               {
@@ -116,6 +130,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 TimeAuto = (valueString.toInt());
+                xhrOnly = true;
               }
 
               // Settings: channel select
@@ -138,6 +153,7 @@ void webInterface()
                   SERVO_MAX_STD[selectedServo] = valueString.toInt();
                 else
                   SERVO_MAX_SANWA[selectedServo] = valueString.toInt();
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Min=") >= 0)
               {
@@ -148,6 +164,7 @@ void webInterface()
                   SERVO_MIN_STD[selectedServo] = valueString.toInt();
                 else
                   SERVO_MIN_SANWA[selectedServo] = valueString.toInt();
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Center=") >= 0)
               {
@@ -158,6 +175,7 @@ void webInterface()
                   SERVO_CENTER_STD[selectedServo] = valueString.toInt();
                 else
                   SERVO_CENTER_SANWA[selectedServo] = valueString.toInt();
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Angle=") >= 0)
               {
@@ -165,6 +183,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SERVO_DEGREES[selectedServo] = valueString.toInt();
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Mode=") >= 0)
               {
@@ -179,6 +198,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 POWER_SCALE = valueString.toInt();
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?Sbus=") >= 0)
               {
@@ -200,6 +220,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 SPEED_CURVE = constrain(valueString.toInt(), 10, 40);
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?WifiOn=") >= 0)
               {
@@ -238,6 +259,7 @@ void webInterface()
                   STA_SSID = valueString;
                   WiFiChanged = true;
                 }
+                xhrOnly = true;
               }
               if (header.indexOf("GET /?StaPass=") >= 0)
               {
@@ -249,6 +271,7 @@ void webInterface()
                   STA_PASSWORD = valueString;
                   WiFiChanged = true;
                 }
+                xhrOnly = true;
               }
 
               if (header.indexOf("GET /mitte1/on") >= 0)
@@ -329,6 +352,9 @@ void webInterface()
               }
 
               // Send the HTML page ------------------------------------------------------
+              // Skipped for xhrOnly requests - see the comment where xhrOnly is declared above.
+              if (!xhrOnly)
+              {
               client.println("<!DOCTYPE html><html>");
               client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
               client.println("<link rel=\"icon\" href=\"data:,\">");
@@ -542,6 +568,7 @@ void webInterface()
               }
 
               client.println("</body></html>");
+              } // if (!xhrOnly)
 
               // The HTTP response ends with another blank line
               client.println();
