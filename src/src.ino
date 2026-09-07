@@ -680,6 +680,8 @@ void ButtonRead()
           beepDuration = 10;
         if (buttonState == 3)
           beepDuration = 30;
+
+        encoderLedDuration = ENCODER_LED_FLASH_MS; // Flash the click LED on every button press too
       }
     }
     else
