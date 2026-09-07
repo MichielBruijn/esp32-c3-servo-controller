@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.17"; // Software revision.
+char codeVersion[] = "0.19"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1769,7 +1769,14 @@ void MenuUpdate()
     int yMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
     int yMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
 
+    // ESP32's ADC has a well-known channel "memory effect": switching to a new ADC1 channel right
+    // after reading a different one can carry over some residual charge from the previous channel's
+    // sample-and-hold capacitor, biasing the new reading toward it - worse with a high-impedance
+    // source like a joystick's potentiometer. Reading each channel twice and keeping only the second
+    // (settled) sample avoids this; this is what made moving one axis appear to nudge the other.
+    analogRead(JOYSTICK_X_PIN); // Throwaway, lets the S&H capacitor settle after the previous Y read
     int rawX = analogRead(JOYSTICK_X_PIN);
+    analogRead(JOYSTICK_Y_PIN); // Throwaway, lets the S&H capacitor settle after the X read above
     int rawY = analogRead(JOYSTICK_Y_PIN);
 
     // Deadzone snaps to the calibrated Center, so mechanical/ADC noise at rest doesn't twitch the servo
