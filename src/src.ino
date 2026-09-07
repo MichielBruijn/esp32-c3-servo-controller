@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.23"; // Software revision.
+char codeVersion[] = "0.24"; // Software revision.
 
 //
 // =======================================================================================================
@@ -82,6 +82,7 @@ Array                                         1.0.0
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
+#include <esp_wifi.h>      // for esp_wifi_set_country() - default region caps WiFi to channels 1-11, blocking channel 12/13 networks
 #include <ESPmDNS.h>       // Reachable as http://servotester.local when joined to an existing network (Station mode)
 #include <WebSocketsServer.h> // Low-latency channel for live servo position updates while dragging a web slider
 #include <EEPROM.h>          // for non volatile storage
@@ -569,6 +570,20 @@ void setupMcpwm()
 // WiFi SETUP
 // =======================================================================================================
 //
+void setWifiChannelRange()
+{
+  // By default the ESP32 uses the "01" (world safe) regulatory domain, which only permits
+  // channels 1-11. Channels 12/13 are legal (and commonly used) in most of Europe, so without
+  // this the device simply refuses to see/join networks broadcasting on them.
+  wifi_country_t country = {
+      .cc = "NL",
+      .schan = 1,
+      .nchan = 13,
+      .max_tx_power = 20,
+      .policy = WIFI_COUNTRY_POLICY_MANUAL};
+  esp_wifi_set_country(&country);
+}
+
 void wifiSetup()
 {
   MDNS.end(); // Clear any previous responder before (re)configuring WiFi, safe even if never started
@@ -591,6 +606,7 @@ void wifiSetup()
       display.display();
 
       WiFi.mode(WIFI_STA);
+      setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
       WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str());
 
       unsigned long connectStartMillis = millis();
@@ -631,6 +647,7 @@ void wifiSetup()
     // Access Point mode (selected directly, or a failed Station join falling back to it)
     Serial.println(connectingAccessPointString[LANGUAGE]);
     WiFi.mode(WIFI_STA);
+    setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
     WiFi.softAP(ssid, password);
 
     IPAddress IP = WiFi.softAPIP();
