@@ -336,7 +336,13 @@ void webInterface()
               client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
               client.println(".button { border: yes; color: white; padding: 10px 40px; width: 100%;");
               client.println("text-decoration: none; font-size: 20px; margin: 2px; cursor: pointer;}");
-              client.println(".slider { -webkit-appearance: none; width: 100%; height: 25px; background: #d3d3d3; outline: none; opacity: 0.7; -webkit-transition: .2s; transition: opacity .2s; }");
+              client.println(".slider { -webkit-appearance: none; -moz-appearance: none; appearance: none; width: 100%; height: 25px; background: #d3d3d3; outline: none; opacity: 0.7; -webkit-transition: .2s; transition: opacity .2s; }");
+              // Firefox needs its own thumb/track rules - "-webkit-appearance: none" alone strips Firefox's
+              // native slider rendering too (track AND thumb) without replacing it with anything visible,
+              // leaving a near-invisible, effectively undraggable line.
+              client.println(".slider::-webkit-slider-thumb { -webkit-appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #4CAF50; cursor: pointer; }");
+              client.println(".slider::-moz-range-thumb { width: 25px; height: 25px; border-radius: 50%; background: #4CAF50; cursor: pointer; border: none; }");
+              client.println(".slider::-moz-range-track { width: 100%; height: 25px; background: #d3d3d3; }");
               client.println(".button1 {background-color: #4CAF50;}");
               client.println(".button2 {background-color: #ff0000;}");
               client.println(".button3 {background-color: #777777;}");
