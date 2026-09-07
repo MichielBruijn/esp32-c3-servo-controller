@@ -486,6 +486,20 @@ void webInterface()
                 client.println("<p><h3>X -> CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + " &micro;s</h3></p>");
                 client.println("<p><h3>Y -> CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + " &micro;s</h3></p>");
                 client.println("<p>Click the stick to re-center both. Change which channel is X/Y in <a href=\"/120/on\">Settings</a>.</p>");
+
+                // Diagnostics: calibrated range being mapped to, vs. the raw ADC extremes the
+                // joystick has actually produced so far this session (widens as you move the stick
+                // to each extreme - if it never gets close to 0/4095, that's the pot's real limit).
+                {
+                  int diagXMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
+                  int diagXMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
+                  int diagYMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
+                  int diagYMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+                  client.println("<p>Calibrated CH" + String(JOYSTICK_X_CHANNEL + 1) + " range: " + String(diagXMin) + "-" + String(diagXMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_X_CHANNEL)) + ")</p>");
+                  client.println("<p>Calibrated CH" + String(JOYSTICK_Y_CHANNEL + 1) + " range: " + String(diagYMin) + "-" + String(diagYMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_Y_CHANNEL)) + ")</p>");
+                  client.println("<p>Learned raw ADC range - X: " + String(joystickXRawMin) + "-" + String(joystickXRawMax) + " / Y: " + String(joystickYRawMin) + "-" + String(joystickYRawMax) + " (0-4095 max, 2048 = center)</p>");
+                }
+
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 

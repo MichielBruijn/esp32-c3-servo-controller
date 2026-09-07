@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.20"; // Software revision.
+char codeVersion[] = "0.21"; // Software revision.
 
 //
 // =======================================================================================================
@@ -149,6 +149,9 @@ String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode,
 bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
 int JOYSTICK_X_CHANNEL;  // Which servo channel (0-4) the joystick's X axis drives
 int JOYSTICK_Y_CHANNEL;  // Which servo channel (0-4) the joystick's Y axis drives
+// Learned raw ADC extremes per axis (see the self-widening calibration in Joystick_Menu), exposed
+// globally too so the web interface's Joystick page can show them for diagnosis. Initialized in setup().
+int joystickXRawMin, joystickXRawMax, joystickYRawMin, joystickYRawMax;
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
@@ -714,6 +717,7 @@ void setup()
   encoder.setFilter(1023);
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP); // BOOT button, only read after boot completes - GPIO0's strapping role is over by then
+  joystickXRawMin = joystickXRawMax = joystickYRawMin = joystickYRawMax = JOYSTICK_ADC_CENTER;
 
   // Speaker setup (passive buzzer, needs a PWM tone rather than a flat digitalWrite)
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
@@ -1742,6 +1746,13 @@ void MenuUpdate()
   // Joystick *********************************************************
   case Joystick_Menu:
   {
+    // Self-widening calibration: a joystick pot rarely actually swings its output all the way from
+    // 0 to JOYSTICK_ADC_MAX (mechanical end-stop before the electrical rail, plus the ESP32 ADC's
+    // own non-linearity near 0V/3.3V), so mapping against the theoretical full range under-uses the
+    // stick's real travel and makes the usable middle feel oversensitive. joystickXRawMin/Max/etc.
+    // (global, initialized in setup()) remember the widest raw values actually seen on each side of
+    // center and use that instead - accurate after the first full deflection each way. Global so the
+    // web interface's Joystick page can show them too, for diagnosis.
     static unsigned long joystickMenuMillis;
     if (millis() - joystickMenuMillis > 50) // Same refresh rate as Servotester_Menu
     {
@@ -1750,9 +1761,11 @@ void MenuUpdate()
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.setFont(ArialMT_Plain_10);
       display.drawString(64, 0, "Joystick");
-      display.drawString(64, 16, "X->CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + "us");
-      display.drawString(64, 28, "Y->CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + "us");
-      display.drawString(64, 48, "Click centers both");
+      display.drawString(64, 12, "X->CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + "us");
+      display.drawString(64, 22, "Y->CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + "us");
+      display.drawString(64, 36, "Xraw " + String(joystickXRawMin) + "-" + String(joystickXRawMax));
+      display.drawString(64, 46, "Yraw " + String(joystickYRawMin) + "-" + String(joystickYRawMax));
+      display.drawString(64, 56, "Click centers both");
       display.display();
     }
 
@@ -1779,18 +1792,10 @@ void MenuUpdate()
     analogRead(JOYSTICK_Y_PIN); // Throwaway, lets the S&H capacitor settle after the X read above
     int rawY = analogRead(JOYSTICK_Y_PIN);
 
-    // Self-widening calibration: a joystick pot rarely actually swings its output all the way from
-    // 0 to JOYSTICK_ADC_MAX (mechanical end-stop before the electrical rail, plus the ESP32 ADC's
-    // own non-linearity near 0V/3.3V), so mapping against the theoretical full range under-uses the
-    // stick's real travel and makes the usable middle feel oversensitive. These remember the widest
-    // raw values actually seen on each side of center and use that instead - accurate after the
-    // first full deflection each way, safely centered before that.
-    static int xRawMin = JOYSTICK_ADC_CENTER, xRawMax = JOYSTICK_ADC_CENTER;
-    static int yRawMin = JOYSTICK_ADC_CENTER, yRawMax = JOYSTICK_ADC_CENTER;
-    xRawMin = min(xRawMin, rawX);
-    xRawMax = max(xRawMax, rawX);
-    yRawMin = min(yRawMin, rawY);
-    yRawMax = max(yRawMax, rawY);
+    joystickXRawMin = min(joystickXRawMin, rawX);
+    joystickXRawMax = max(joystickXRawMax, rawX);
+    joystickYRawMin = min(joystickYRawMin, rawY);
+    joystickYRawMax = max(joystickYRawMax, rawY);
 
     int xCenterServo = servoCenterForChannel(JOYSTICK_X_CHANNEL);
     int yCenterServo = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
@@ -1799,16 +1804,16 @@ void MenuUpdate()
     if (abs(rawX - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
       servo_pos[JOYSTICK_X_CHANNEL] = xCenterServo;
     else if (rawX < JOYSTICK_ADC_CENTER)
-      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, xRawMin, JOYSTICK_ADC_CENTER, xMin, xCenterServo);
+      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, joystickXRawMin, JOYSTICK_ADC_CENTER, xMin, xCenterServo);
     else
-      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, JOYSTICK_ADC_CENTER, xRawMax, xCenterServo, xMax);
+      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, JOYSTICK_ADC_CENTER, joystickXRawMax, xCenterServo, xMax);
 
     if (abs(rawY - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
       servo_pos[JOYSTICK_Y_CHANNEL] = yCenterServo;
     else if (rawY < JOYSTICK_ADC_CENTER)
-      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, yRawMin, JOYSTICK_ADC_CENTER, yMin, yCenterServo);
+      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, joystickYRawMin, JOYSTICK_ADC_CENTER, yMin, yCenterServo);
     else
-      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, JOYSTICK_ADC_CENTER, yRawMax, yCenterServo, yMax);
+      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, JOYSTICK_ADC_CENTER, joystickYRawMax, yCenterServo, yMax);
 
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
