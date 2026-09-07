@@ -45,10 +45,11 @@ void webInterface()
 
     if (client)
     { // If a new client connects,
-      client.setNoDelay(true); // Disable Nagle's algorithm - these are tiny packets sent back to
-                                // back during a slider drag, and Nagle/delayed-ACK interaction can
-                                // stall each one by tens of ms waiting to coalesce with more data
-                                // that's never coming.
+      // NOTE: no setNoDelay() here on purpose. It helped the old per-tick HTTP slider updates, but
+      // now that those go over the WebSocket instead, disabling Nagle here only hurt full-page loads
+      // (Menu/Settings/reload): a page is ~150 separate client.println() calls, and without Nagle's
+      // batching each one tends to go out as its own WiFi packet - many more packets, each with real
+      // per-frame WiFi overhead, made full pages noticeably slower to arrive.
       currentTime = millis();
       previousTime = currentTime;
       Serial.println("New Client."); // print a message out in the serial port
