@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.19"; // Software revision.
+char codeVersion[] = "0.20"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1779,13 +1779,36 @@ void MenuUpdate()
     analogRead(JOYSTICK_Y_PIN); // Throwaway, lets the S&H capacitor settle after the X read above
     int rawY = analogRead(JOYSTICK_Y_PIN);
 
+    // Self-widening calibration: a joystick pot rarely actually swings its output all the way from
+    // 0 to JOYSTICK_ADC_MAX (mechanical end-stop before the electrical rail, plus the ESP32 ADC's
+    // own non-linearity near 0V/3.3V), so mapping against the theoretical full range under-uses the
+    // stick's real travel and makes the usable middle feel oversensitive. These remember the widest
+    // raw values actually seen on each side of center and use that instead - accurate after the
+    // first full deflection each way, safely centered before that.
+    static int xRawMin = JOYSTICK_ADC_CENTER, xRawMax = JOYSTICK_ADC_CENTER;
+    static int yRawMin = JOYSTICK_ADC_CENTER, yRawMax = JOYSTICK_ADC_CENTER;
+    xRawMin = min(xRawMin, rawX);
+    xRawMax = max(xRawMax, rawX);
+    yRawMin = min(yRawMin, rawY);
+    yRawMax = max(yRawMax, rawY);
+
+    int xCenterServo = servoCenterForChannel(JOYSTICK_X_CHANNEL);
+    int yCenterServo = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
+
     // Deadzone snaps to the calibrated Center, so mechanical/ADC noise at rest doesn't twitch the servo
-    servo_pos[JOYSTICK_X_CHANNEL] = (abs(rawX - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
-                                         ? servoCenterForChannel(JOYSTICK_X_CHANNEL)
-                                         : map(rawX, 0, JOYSTICK_ADC_MAX, xMin, xMax);
-    servo_pos[JOYSTICK_Y_CHANNEL] = (abs(rawY - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
-                                         ? servoCenterForChannel(JOYSTICK_Y_CHANNEL)
-                                         : map(rawY, 0, JOYSTICK_ADC_MAX, yMin, yMax);
+    if (abs(rawX - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
+      servo_pos[JOYSTICK_X_CHANNEL] = xCenterServo;
+    else if (rawX < JOYSTICK_ADC_CENTER)
+      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, xRawMin, JOYSTICK_ADC_CENTER, xMin, xCenterServo);
+    else
+      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, JOYSTICK_ADC_CENTER, xRawMax, xCenterServo, xMax);
+
+    if (abs(rawY - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
+      servo_pos[JOYSTICK_Y_CHANNEL] = yCenterServo;
+    else if (rawY < JOYSTICK_ADC_CENTER)
+      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, yRawMin, JOYSTICK_ADC_CENTER, yMin, yCenterServo);
+    else
+      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, JOYSTICK_ADC_CENTER, yRawMax, yCenterServo, yMax);
 
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);

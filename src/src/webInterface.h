@@ -326,6 +326,10 @@ void webInterface()
               {
                 Menu = IBUS_lesen_Menu;
               }
+              if (header.indexOf("GET /70/on") >= 0)
+              {
+                Menu = Joystick_Menu;
+              }
               if (header.indexOf("GET /120/on") >= 0)
               {
                 Menu = Einstellung_Menu;
@@ -473,6 +477,15 @@ void webInterface()
                 client.println("} </script>");
 
                 client.println("<p><a href=\"/pause/on\"><button class=\"button button1\">Pause</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
+
+              case Joystick_Menu:
+                client.println("<h2>Joystick</h2>");
+                client.println("<p>Physical analog stick on the device itself - this page just shows what it's currently doing.</p>");
+                client.println("<p><h3>X -> CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + " &micro;s</h3></p>");
+                client.println("<p><h3>Y -> CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + " &micro;s</h3></p>");
+                client.println("<p>Click the stick to re-center both. Change which channel is X/Y in <a href=\"/120/on\">Settings</a>.</p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
@@ -624,6 +637,7 @@ void webInterface()
                 client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Read PPM Multiswitch</button></a></p>");
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
+                client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Joystick</button></a></p>");
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Settings</button></a></p>");
                 break; // Not needed when statement(s) are present
               }
