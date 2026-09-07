@@ -1,6 +1,35 @@
 
 #include <Arduino.h>
 
+// Decode a percent-encoded query value (encodeURIComponent() on the JS side), so SSID/password
+// fields can carry spaces and special characters through a GET query parameter.
+String urlDecode(String input)
+{
+  String output = "";
+  char hexBuf[] = "00";
+  unsigned int len = input.length();
+  for (unsigned int i = 0; i < len; i++)
+  {
+    char c = input[i];
+    if (c == '+')
+    {
+      output += ' ';
+    }
+    else if (c == '%' && i + 2 < len)
+    {
+      hexBuf[0] = input[i + 1];
+      hexBuf[1] = input[i + 2];
+      output += (char)strtol(hexBuf, NULL, 16);
+      i += 2;
+    }
+    else
+    {
+      output += c;
+    }
+  }
+  return output;
+}
+
 //
 // =======================================================================================================
 // WEB INTERFACE
@@ -181,6 +210,43 @@ void webInterface()
                 if (newWifiOn != WIFI_ON)
                 {
                   WIFI_ON = newWifiOn;
+                  WiFiChanged = true;
+                }
+              }
+              if (header.indexOf("GET /?WifiMode=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                int newWifiMode = constrain(valueString.toInt(), (int)WIFI_AP_MODE, (int)WIFI_STATION_MODE);
+                if (newWifiMode != WIFI_MODE)
+                {
+                  WIFI_MODE = newWifiMode;
+                  WiFiChanged = true;
+                }
+              }
+              // Home WiFi credentials for Station mode - URL-decoded and length-capped to fit the
+              // reserved EEPROM slots (32 chars SSID / 64 chars password), so an oversized value
+              // can never spill into the neighbouring field.
+              if (header.indexOf("GET /?StaSsid=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = urlDecode(header.substring(pos1 + 1, pos2)).substring(0, 32);
+                if (valueString != STA_SSID)
+                {
+                  STA_SSID = valueString;
+                  WiFiChanged = true;
+                }
+              }
+              if (header.indexOf("GET /?StaPass=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = urlDecode(header.substring(pos1 + 1, pos2)).substring(0, 64);
+                if (valueString != STA_PASSWORD)
+                {
+                  STA_PASSWORD = valueString;
                   WiFiChanged = true;
                 }
               }
@@ -426,6 +492,30 @@ void webInterface()
                 client.println("<p><h3>WiFi: " + String(WIFI_ON == 1 ? "On" : "Off") + "</h3>");
                 client.println("<a href=\"/?WifiOn=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_ON == 1 ? "buttonActive" : "button3") + "\">On</button></a>");
                 client.println("<a href=\"/?WifiOn=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_ON == 0 ? "buttonActive" : "button3") + "\">Off</button></a></p>");
+
+                // WiFi mode: own Access Point vs joining an existing (home) network -----
+                client.println("<p><h3>WiFi Mode: " + String(WIFI_MODE == WIFI_STATION_MODE ? "Station (join network)" : "Access Point") + "</h3>");
+                client.println("<a href=\"/?WifiMode=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_MODE == WIFI_AP_MODE ? "buttonActive" : "button3") + "\">Access Point</button></a>");
+                client.println("<a href=\"/?WifiMode=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_MODE == WIFI_STATION_MODE ? "buttonActive" : "button3") + "\">Station</button></a></p>");
+
+                if (wifiStaFallback)
+                {
+                  client.println("<p style=\"color:red;\">Could not join '" + STA_SSID + "', fell back to Access Point. Check the password below and Save again.</p>");
+                }
+
+                client.println("<p><h3>Home WiFi SSID (Station mode)</h3>");
+                client.println("<input type=\"text\" id=\"StaSsidInput\" class=\"textbox\" oninput=\"StaSsidChange(this.value)\" value=\"" + STA_SSID + "\" /></p>");
+                client.println("<script> function StaSsidChange(val) { ");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?StaSsid=\" + encodeURIComponent(val) + \"&\", true);");
+                client.println("xhr.send(); } </script>");
+
+                client.println("<p><h3>Home WiFi Password (Station mode)</h3>");
+                client.println("<input type=\"password\" id=\"StaPassInput\" class=\"textbox\" oninput=\"StaPassChange(this.value)\" value=\"" + STA_PASSWORD + "\" /></p>");
+                client.println("<script> function StaPassChange(val) { ");
+                client.println("var xhr = new XMLHttpRequest();");
+                client.println("xhr.open('GET', \"/?StaPass=\" + encodeURIComponent(val) + \"&\", true);");
+                client.println("xhr.send(); } </script>");
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");

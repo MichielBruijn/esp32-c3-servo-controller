@@ -34,7 +34,7 @@
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  */
 
-char codeVersion[] = "0.5"; // Software revision.
+char codeVersion[] = "0.6"; // Software revision.
 
 //
 // =======================================================================================================
@@ -77,6 +77,7 @@ Array                                         1.0.0
 
 // No need to install these, they come with the ESP32 board definition
 #include <WiFi.h>
+#include <ESPmDNS.h>       // Reachable as http://servotester.local when joined to an existing network (Station mode)
 #include <EEPROM.h>          // for non volatile storage
 #include <Esp.h>             // for displaying memory information
 #include "rom/rtc.h"         // for displaying reset reason
@@ -95,14 +96,17 @@ using namespace std;
 #define NUM_SERVO_CHANNELS 5
 #define SERVO_CHANNEL_DATA_START 48
 #define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * 24) // 24 bytes (6 ints) per servo channel
-#define EEPROM_SIZE (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
+#define WIFI_STA_DATA_START (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
+#define EEPROM_SIZE (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
-#define adr_eprom_SERVO_STEPS 4         // Deprecated, calculated automaticallly
+#define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 3         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 4         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
+#define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -125,7 +129,16 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 // EEPROM Speicher der Einstellungen
 int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
-String wifiIpString = ""; // AP IP address, filled in wifiSetup(), shown in the Wifi Info screen
+enum WifiModeEnum
+{
+  WIFI_AP_MODE = 0,      // Own access point, e.g. "ServoTester" - always reachable, but disconnects you from your own WiFi
+  WIFI_STATION_MODE = 1  // Join an existing WiFi network (STA_SSID/STA_PASSWORD below), reachable via http://servotester.local
+};
+int WIFI_MODE;           // 0 = Access Point, 1 = Station, see WifiModeEnum above
+String STA_SSID = "";     // Home WiFi network SSID to join in Station mode, entered via the web interface
+String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode, entered via the web interface
+bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
+String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
 int SERVO_MIN;          // Deprecated, controlled by servoModes.h
@@ -460,9 +473,62 @@ void setupMcpwm()
 //
 void wifiSetup()
 {
+  MDNS.end(); // Clear any previous responder before (re)configuring WiFi, safe even if never started
+  wifiStaFallback = false;
+
   if (WIFI_ON == 1)
   { // Wifi Ein
-    // Print local IP address and start web server
+    if (WIFI_MODE == WIFI_STATION_MODE && STA_SSID.length() > 0)
+    {
+      // Try to join the configured home network first, so the device stays on the same
+      // network as the phone/laptop already using it - no need to switch WiFi to reach it.
+      Serial.print("Connecting to WiFi network: ");
+      Serial.println(STA_SSID);
+
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 20, "Connecting to");
+      display.drawString(64, 34, STA_SSID);
+      display.display();
+
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str());
+
+      unsigned long connectStartMillis = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - connectStartMillis < 10000)
+      {
+        delay(250);
+      }
+
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        wifiIpString = WiFi.localIP().toString();
+        Serial.print("Connected, IP: ");
+        Serial.println(wifiIpString);
+
+        if (MDNS.begin("servotester"))
+        {
+          MDNS.addService("http", "tcp", 80);
+          Serial.println("mDNS responder started: http://servotester.local");
+        }
+
+        digitalWrite(BUZZER_PIN, LOW); // Buzzer off
+        Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
+        WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
+        Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
+
+        server.begin(); // Start Webserver
+        return;
+      }
+
+      // Could not join within the timeout: fall back to Access Point, so the device is
+      // never left unreachable just because the configured home network is out of range.
+      Serial.println("Could not join WiFi network, falling back to Access Point");
+      wifiStaFallback = true;
+    }
+
+    // Access Point mode (selected directly, or a failed Station join falling back to it)
     Serial.println(connectingAccessPointString[LANGUAGE]);
     WiFi.mode(WIFI_STA);
     WiFi.softAP(ssid, password);
@@ -1446,10 +1512,20 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_10);
     if (WIFI_ON == 1)
     {
-      display.drawString(64, 0, "Wifi: " + onString[LANGUAGE]);
-      display.drawString(64, 14, "SSID: " + String(ssid));
-      display.drawString(64, 28, passwordString[LANGUAGE] + " " + String(password));
-      display.drawString(64, 42, ipAddressString[LANGUAGE] + " " + wifiIpString);
+      if (WIFI_MODE == WIFI_STATION_MODE && !wifiStaFallback)
+      {
+        display.drawString(64, 0, "Wifi: Station");
+        display.drawString(64, 14, "SSID: " + STA_SSID);
+        display.drawString(64, 28, ipAddressString[LANGUAGE] + " " + wifiIpString);
+        display.drawString(64, 42, "servotester.local");
+      }
+      else
+      {
+        display.drawString(64, 0, wifiStaFallback ? "Wifi: AP (fallback)" : ("Wifi: " + onString[LANGUAGE]));
+        display.drawString(64, 14, "SSID: " + String(ssid));
+        display.drawString(64, 28, passwordString[LANGUAGE] + " " + String(password));
+        display.drawString(64, 42, ipAddressString[LANGUAGE] + " " + wifiIpString);
+      }
     }
     else
     {
@@ -1580,6 +1656,17 @@ void MenuUpdate()
       display.drawString(64, 25, speedCurveString[LANGUAGE]);
       display.drawString(64, 45, String(SPEED_CURVE / 10.0, 1));
       break;
+    case 12:
+      display.drawString(64, 25, "Wifi Mode");
+      if (WIFI_MODE == WIFI_STATION_MODE)
+      {
+        display.drawString(64, 45, "Station");
+      }
+      else
+      {
+        display.drawString(64, 45, "Access Point");
+      }
+      break;
     }
     if (Edit)
     {
@@ -1649,6 +1736,10 @@ void MenuUpdate()
         case 11:
           SPEED_CURVE--;
           break;
+        case 12:
+          WIFI_MODE--;
+          WiFiChanged = true;
+          break;
         }
       }
     }
@@ -1708,18 +1799,22 @@ void MenuUpdate()
         case 11:
           SPEED_CURVE++;
           break;
+        case 12:
+          WIFI_MODE++;
+          WiFiChanged = true;
+          break;
         }
       }
     }
 
     // Menu range -------------------------------------
-    if (Einstellung > 11)
+    if (Einstellung > 12)
     {
       Einstellung = 0;
     }
     else if (Einstellung < 0)
     {
-      Einstellung = 11;
+      Einstellung = 12;
     }
 
     // Limits -----------------------------------------
@@ -1734,6 +1829,7 @@ void MenuUpdate()
     }
 
     SPEED_CURVE = constrain(SPEED_CURVE, 10, 40); // Exponent x10: 1.0 (linear) to 4.0 (very aggressive)
+    WIFI_MODE = constrain(WIFI_MODE, WIFI_AP_MODE, WIFI_STATION_MODE);
 
     if (LANGUAGE < 0)
     { // Language nicht unter 0
@@ -1933,6 +2029,9 @@ void eepromInit()
 
     // Restore defaults
     WIFI_ON = 1; // Wifi on
+    WIFI_MODE = WIFI_AP_MODE; // Factory reset always drops back to the always-reachable Access Point
+    STA_SSID = "";
+    STA_PASSWORD = ""; // Factory reset must not leave a saved home WiFi password behind
     // SERVO_STEPS = 10;
     // SERVO_MAX = 2000;
     // SERVO_MIN = 1000;
@@ -1964,6 +2063,9 @@ void eepromInit()
 void eepromWrite()
 {
   EEPROM.writeInt(adr_eprom_WIFI_ON, WIFI_ON);
+  EEPROM.writeInt(adr_eprom_WIFI_MODE, WIFI_MODE);
+  EEPROM.writeString(adr_eprom_STA_SSID, STA_SSID);
+  EEPROM.writeString(adr_eprom_STA_PASSWORD, STA_PASSWORD);
   // EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
   //  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
   //  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
@@ -2012,6 +2114,22 @@ void eepromRead()
   // This address used to hold the removed PONG_BALL_RATE setting, so on the migration boot its old
   // value must be discarded rather than reused as SPEED_CURVE.
   SPEED_CURVE = layoutJustChanged ? 19 : EEPROM.readInt(adr_eprom_SPEED_CURVE);
+
+  // This address used to hold the deprecated SERVO_STEPS setting; discard its stale value here too.
+  WIFI_MODE = layoutJustChanged ? WIFI_AP_MODE : EEPROM.readInt(adr_eprom_WIFI_MODE);
+
+  // Freshly appended fields (never written before this firmware version): start blank rather than
+  // risk EEPROM.readString() scanning unwritten flash for a null terminator that isn't there.
+  if (layoutJustChanged)
+  {
+    STA_SSID = "";
+    STA_PASSWORD = "";
+  }
+  else
+  {
+    STA_SSID = EEPROM.readString(adr_eprom_STA_SSID);
+    STA_PASSWORD = EEPROM.readString(adr_eprom_STA_PASSWORD);
+  }
 
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
