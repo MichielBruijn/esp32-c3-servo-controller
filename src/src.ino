@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.16"; // Software revision.
+char codeVersion[] = "0.17"; // Software revision.
 
 //
 // =======================================================================================================
@@ -2403,18 +2403,23 @@ void eepromRead()
 
   // Freshly appended EEPROM bytes aren't reliably blank/zero, so a value range check alone can't tell
   // "never written" apart from "genuinely holds this value" - a layout version marker can.
-  bool layoutJustChanged = (EEPROM.readInt(adr_eprom_LAYOUT_VERSION) != EEPROM_LAYOUT_VERSION);
+  int storedLayoutVersion = EEPROM.readInt(adr_eprom_LAYOUT_VERSION);
+  bool layoutJustChanged = (storedLayoutVersion != EEPROM_LAYOUT_VERSION);
 
   // This address used to hold the removed PONG_BALL_RATE setting, so on the migration boot its old
   // value must be discarded rather than reused as SPEED_CURVE.
   SPEED_CURVE = layoutJustChanged ? 19 : EEPROM.readInt(adr_eprom_SPEED_CURVE);
 
-  // This address used to hold the deprecated SERVO_STEPS setting; discard its stale value here too.
-  WIFI_MODE = layoutJustChanged ? WIFI_AP_MODE : EEPROM.readInt(adr_eprom_WIFI_MODE);
+  // WIFI_MODE/STA_SSID/STA_PASSWORD were introduced at layout version 4 (WIFI_MODE reusing the old
+  // deprecated SERVO_STEPS address, STA_SSID/PASSWORD newly appended). Only default them on a boot
+  // that's upgrading from *before* version 4 - using the generic layoutJustChanged here instead would
+  // wipe the saved home WiFi network and password on every future, unrelated layout bump too.
+  bool wifiFieldsNeedDefaulting = (storedLayoutVersion < 4);
+  WIFI_MODE = wifiFieldsNeedDefaulting ? WIFI_AP_MODE : EEPROM.readInt(adr_eprom_WIFI_MODE);
 
   // Freshly appended fields (never written before this firmware version): start blank rather than
   // risk EEPROM.readString() scanning unwritten flash for a null terminator that isn't there.
-  if (layoutJustChanged)
+  if (wifiFieldsNeedDefaulting)
   {
     STA_SSID = "";
     STA_PASSWORD = "";
@@ -2425,8 +2430,11 @@ void eepromRead()
     STA_PASSWORD = EEPROM.readString(adr_eprom_STA_PASSWORD);
   }
 
-  JOYSTICK_X_CHANNEL = constrain(layoutJustChanged ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
-  JOYSTICK_Y_CHANNEL = constrain(layoutJustChanged ? 1 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+  // Same reasoning as above: JOYSTICK_X/Y_CHANNEL were introduced at layout version 5, so only
+  // default them when upgrading from before that version, not on every later bump.
+  bool joystickFieldsNeedDefaulting = (storedLayoutVersion < 5);
+  JOYSTICK_X_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+  JOYSTICK_Y_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 1 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
 
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
