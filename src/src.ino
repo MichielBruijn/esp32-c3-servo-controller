@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.21"; // Software revision.
+char codeVersion[] = "0.22"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1764,8 +1764,7 @@ void MenuUpdate()
       display.drawString(64, 12, "X->CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + "us");
       display.drawString(64, 22, "Y->CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + "us");
       display.drawString(64, 36, "Xraw " + String(joystickXRawMin) + "-" + String(joystickXRawMax));
-      display.drawString(64, 46, "Yraw " + String(joystickYRawMin) + "-" + String(joystickYRawMax));
-      display.drawString(64, 56, "Click centers both");
+      display.drawString(64, 48, "Yraw " + String(joystickYRawMin) + "-" + String(joystickYRawMax));
       display.display();
     }
 
