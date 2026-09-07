@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.24"; // Software revision.
+char codeVersion[] = "0.25"; // Software revision.
 
 //
 // =======================================================================================================
@@ -598,6 +598,23 @@ void wifiSetup()
       Serial.print("Connecting to WiFi network: ");
       Serial.println(STA_SSID);
 
+      WiFi.mode(WIFI_STA);
+      setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
+
+      wifi_country_t currentCountry;
+      esp_wifi_get_country(&currentCountry);
+      Serial.printf("WiFi country: %s, channels %u-%u, policy %d\n",
+                     currentCountry.cc, currentCountry.schan,
+                     currentCountry.schan + currentCountry.nchan - 1, currentCountry.policy);
+
+      Serial.println("Scanning...");
+      int scanCount = WiFi.scanNetworks();
+      for (int i = 0; i < scanCount; i++)
+      {
+        Serial.printf("  [%2d] ch%2d  %4ddBm  %s\n", i, WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i).c_str());
+      }
+      WiFi.scanDelete();
+
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.setFont(ArialMT_Plain_10);
@@ -605,8 +622,6 @@ void wifiSetup()
       display.drawString(64, 34, STA_SSID);
       display.display();
 
-      WiFi.mode(WIFI_STA);
-      setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
       WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str());
 
       unsigned long connectStartMillis = millis();
