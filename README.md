@@ -42,6 +42,8 @@ Compared to the upstream [TheDIYGuy999/Servotester_Deluxe](https://github.com/Th
 - **Boot screen**: the control-help screen now dismisses on a button press or after a 10s timeout (was a fixed 4s delay); WiFi SSID/password are no longer shown as a boot popup and are instead available on demand in the Settings menu; the splash screen is now neutral (no logo/branding).
 - **Web interface rewritten**: fully translated to English (was German) and rewritten to match the OLED menu — same per-channel Min/Max/Center/Angle, servo mode, power scale, SBUS/encoder direction and speed curve settings, plus factory reset. The WiFi access point's IP address is now also shown on the OLED's Wifi Info screen.
 - **Real-time web servo control**: the position sliders update live while dragging (not just on release), over a dedicated low-latency WebSocket channel (port 81) instead of one HTTP request per tick — close to RC-stick feel instead of a laggy, catch-up motion. Falls back to plain HTTP automatically if the socket isn't connected. The Center button and page navigation are instant too (no more full-page reload for a single click).
+- **BOOT button repurposed**: the ESP32 board's onboard BOOT button (unused once the device has booted) now works as a "next channel" shortcut, with the same click LED/beep feedback as the encoder.
+- **Info menu + link**: a new "Info" item in the OLED menu, and a link at the bottom of every web page, point back to this repository - so anyone who finds the device can find the source and build their own.
 - **WiFi Station mode**: besides the device's own Access Point, it can now join an existing WiFi network instead (Settings menu or web Settings page — SSID/password are entered via the web interface). Once joined, it's reachable at `http://servotester.local` (mDNS) from any computer on that network, without disconnecting from your own WiFi/internet to reach it. If the configured network can't be joined within 10s, it automatically falls back to its own Access Point so it's never left unreachable.
 - **Removed the oscilloscope function, the Pong and Flappy Bird games, and the Calculator** to simplify the firmware and free up flash space.
 - **Custom hardware**: this fork is not built on the original PCB — see [Wiring](#wiring) below for the GPIO pinout, which works with any ESP32 DevKit + I2C OLED + 5-pin rotary encoder breadboard build.
@@ -69,6 +71,7 @@ Any ESP32 DevKit board works — connect an I2C OLED, a 5-pin rotary encoder wit
 | OLED SDA (I2C) | 21 | |
 | OLED SCL (I2C) | 22 | |
 | Passive piezo buzzer | 4 | Driven via LEDC PWM tone, not a flat digitalWrite |
+| BOOT button ("next channel" shortcut) | 0 | Onboard button on most ESP32 DevKit boards, no extra wiring needed |
 | Encoder click LED | 2 | LED + ~220-330Ω series resistor to GND, mounted next to the power LED |
 | Battery voltage sense | 36 | Input-only ADC pin; needs an external resistor divider to bring pack voltage (up to 6S/~25.2V) under 3.3V — the divider ratio is calibrated in software via the "Power Scale" setting, no fixed resistor values required |
 

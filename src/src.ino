@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.14"; // Software revision.
+char codeVersion[] = "0.15"; // Software revision.
 
 //
 // =======================================================================================================
@@ -242,6 +242,7 @@ float batteryChargePercentage; // Akkuspannung in Prozent
  * 4 = Multiswitch_lesen_Auswahl Auswahl -> 54 Multiswitch_lesen_Menu
  * 5 = SBUS_lesen_Auswahl        Auswahl -> 55 SBUS_lesen_Menu
  * 6 = Einstellung_Auswahl       Auswahl -> 56 Einstellung_Menu
+ * 9 = Info_Auswahl              Auswahl -> 59 Info_Menu
  * etc.
  */
 enum
@@ -254,6 +255,7 @@ enum
   IBUS_lesen_Auswahl = 6,
   WifiInfo_Auswahl = 7,
   Einstellung_Auswahl = 8,
+  Info_Auswahl = 9,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -262,7 +264,8 @@ enum
   SBUS_lesen_Menu = 55,
   IBUS_lesen_Menu = 56,
   WifiInfo_Menu = 57,
-  Einstellung_Menu = 58
+  Einstellung_Menu = 58,
+  Info_Menu = 59
 };
 
 //-Menu 52 Automatik Modus
@@ -857,6 +860,7 @@ void ButtonRead()
     if (selectedServo > NUM_SERVO_CHANNELS - 1)
       selectedServo = 0;
     encoderLedDuration = ENCODER_LED_FLASH_MS; // Same click feedback as the encoder button/detent
+    beepDuration = 10; // Same short beep as a normal button click
   }
   lastBootButtonState = bootButtonState;
 }
@@ -1095,7 +1099,7 @@ void MenuUpdate()
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu  ");
+    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, settingsString[LANGUAGE]);
     drawWiFi();
@@ -1107,13 +1111,39 @@ void MenuUpdate()
     }
     if (encoderState == 2)
     {
-      Menu = Einstellung_Auswahl;
+      Menu++;
     }
 
     if (buttonState == 2)
     {
       Menu = Einstellung_Menu;
       Einstellung = 7; // Pre select Servo frequency setting
+    }
+    break;
+
+  // Info Auswahl *********************************************************
+  case Info_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu  ");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "Info");
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu = Info_Auswahl;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Info_Menu;
     }
     break;
 
@@ -1608,6 +1638,24 @@ void MenuUpdate()
     if (buttonState == 1)
     {
       Menu = WifiInfo_Auswahl;
+    }
+    break;
+
+  // Info *********************************************************
+  case Info_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 0, "Firmware source:");
+    display.drawString(64, 12, "github.com/");
+    display.drawString(64, 22, "MichielBruijn/");
+    display.drawString(64, 32, "esp32-servo-tester");
+    display.drawString(64, 48, "v" + String(codeVersion));
+    display.display();
+
+    if (buttonState == 1)
+    {
+      Menu = Info_Auswahl;
     }
     break;
 

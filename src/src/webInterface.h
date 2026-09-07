@@ -597,6 +597,9 @@ void webInterface()
                 break; // Not needed when statement(s) are present
               }
 
+              // Shown on every page - source/copies for anyone who finds this device
+              client.println("<p style=\"margin-top:20px;\"><a href=\"https://github.com/MichielBruijn/esp32-servo-tester\">github.com/MichielBruijn/esp32-servo-tester</a></p>");
+
               client.println("</body></html>");
               } // if (!xhrOnly)
 
