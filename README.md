@@ -24,7 +24,7 @@ All credit for the original firmware architecture (MCPWM servo generation, signa
 - LED flash on every encoder click and button press, next to the power LED
 - Powered via USB (small servos) or a LiPo battery, 2S-6S (larger loads)
 - 0.96" (SSD1306) or 1.3" (SH1106) OLED display
-- Web interface with the same settings and channel calibration as the OLED menu, reachable either via the device's own WiFi access point or, once configured, by joining your home WiFi network (`http://servotester.local`)
+- Web interface with the same settings and channel calibration as the OLED menu, reachable either via the device's own WiFi access point or, once configured, by joining your home WiFi network (`http://servotester.local`) — servo position sliders track a drag in real time (low-latency WebSocket channel), close to RC-stick feel
 
 ## Changes in this fork
 
@@ -40,7 +40,8 @@ Compared to the upstream [TheDIYGuy999/Servotester_Deluxe](https://github.com/Th
 - **Long press fires immediately**: the "back" action now triggers as soon as the long-press threshold is reached, instead of waiting for the button to be released.
 - **Double-click always switches channel** in the Settings menu, regardless of which item is currently selected.
 - **Boot screen**: the control-help screen now dismisses on a button press or after a 10s timeout (was a fixed 4s delay); WiFi SSID/password are no longer shown as a boot popup and are instead available on demand in the Settings menu; the splash screen is now neutral (no logo/branding).
-- **Web interface rewritten**: fully translated to English (was German) and rewritten to match the OLED menu — same per-channel Min/Max/Center/Angle, servo mode, power scale, SBUS/encoder direction and speed curve settings, plus factory reset. The WiFi access point's IP address is now also shown on the OLED's Wifi Info screen. Servo position sliders update live while dragging, instead of only on release.
+- **Web interface rewritten**: fully translated to English (was German) and rewritten to match the OLED menu — same per-channel Min/Max/Center/Angle, servo mode, power scale, SBUS/encoder direction and speed curve settings, plus factory reset. The WiFi access point's IP address is now also shown on the OLED's Wifi Info screen.
+- **Real-time web servo control**: the position sliders update live while dragging (not just on release), over a dedicated low-latency WebSocket channel (port 81) instead of one HTTP request per tick — close to RC-stick feel instead of a laggy, catch-up motion. Falls back to plain HTTP automatically if the socket isn't connected. The Center button and page navigation are instant too (no more full-page reload for a single click).
 - **WiFi Station mode**: besides the device's own Access Point, it can now join an existing WiFi network instead (Settings menu or web Settings page — SSID/password are entered via the web interface). Once joined, it's reachable at `http://servotester.local` (mDNS) from any computer on that network, without disconnecting from your own WiFi/internet to reach it. If the configured network can't be joined within 10s, it automatically falls back to its own Access Point so it's never left unreachable.
 - **Removed the oscilloscope function, the Pong and Flappy Bird games, and the Calculator** to simplify the firmware and free up flash space.
 - **Custom hardware**: this fork is not built on the original PCB — see [Wiring](#wiring) below for the GPIO pinout, which works with any ESP32 DevKit + I2C OLED + 5-pin rotary encoder breadboard build.
