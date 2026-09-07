@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.25"; // Software revision.
+char codeVersion[] = "0.26"; // Software revision.
 
 //
 // =======================================================================================================
@@ -607,11 +607,29 @@ void wifiSetup()
                      currentCountry.cc, currentCountry.schan,
                      currentCountry.schan + currentCountry.nchan - 1, currentCountry.policy);
 
+      // Multi-AP networks (e.g. mesh/UniFi setups) broadcast the same SSID from several access
+      // points on different channels. WiFi.begin() alone connects to whichever one it happens to
+      // find first while scanning channel-by-channel, which is often not the strongest one. So
+      // scan ourselves and explicitly pin the connection to the strongest matching AP.
       Serial.println("Scanning...");
       int scanCount = WiFi.scanNetworks();
+      int bestIndex = -1;
       for (int i = 0; i < scanCount; i++)
       {
         Serial.printf("  [%2d] ch%2d  %4ddBm  %s\n", i, WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i).c_str());
+        if (WiFi.SSID(i) == STA_SSID && (bestIndex == -1 || WiFi.RSSI(i) > WiFi.RSSI(bestIndex)))
+        {
+          bestIndex = i;
+        }
+      }
+
+      int32_t bestChannel = 0;
+      const uint8_t *bestBssid = NULL;
+      if (bestIndex != -1)
+      {
+        bestChannel = WiFi.channel(bestIndex);
+        bestBssid = WiFi.BSSID(bestIndex);
+        Serial.printf("Strongest match: ch%d %ddBm\n", bestChannel, WiFi.RSSI(bestIndex));
       }
       WiFi.scanDelete();
 
@@ -622,7 +640,7 @@ void wifiSetup()
       display.drawString(64, 34, STA_SSID);
       display.display();
 
-      WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str());
+      WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str(), bestChannel, bestBssid);
 
       unsigned long connectStartMillis = millis();
       while (WiFi.status() != WL_CONNECTED && millis() - connectStartMillis < 10000)
