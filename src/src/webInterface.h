@@ -55,7 +55,9 @@ void webInterface()
         if (client.available())
         {                         // if there's bytes to read from the client,
           char c = client.read(); // read a byte, then
-          Serial.write(c);        // print it out the serial monitor
+          // Echoing every byte to Serial at 115200 baud added real, measurable latency to every
+          // single request (a typical browser request is 300-600+ bytes) - exactly what made
+          // dragging a slider (which fires a fresh request on every tick) feel jerky.
           header += c;
           if (c == '\n')
           { // if the byte is a newline character
@@ -374,7 +376,32 @@ void webInterface()
               client.println(".button3 {background-color: #777777;}");
               client.println(".buttonActive {background-color: #2196F3;}");
               client.println(".textbox {font-size: 25px; text-align: center;}");
-              client.println("</style></head>");
+              client.println("</style>");
+
+              // Throttled sender for slider/textbox updates: at most one request in flight per
+              // control at a time. A fast drag fires oninput far faster than the single-threaded
+              // ESP32 server can answer - without this, every tick queued up its own request and
+              // the servo lagged the drag, then caught up in bursts. Here, extra ticks that arrive
+              // while a request is still in flight just replace the pending value; once that
+              // request completes, only the latest pending value (if any) is sent next.
+              client.println("<script>");
+              client.println("var pendingUrl = {}, inFlight = {};");
+              client.println("function sendThrottled(key, url) {");
+              client.println("  pendingUrl[key] = url;");
+              client.println("  if (!inFlight[key]) { inFlight[key] = true; doSend(key); }");
+              client.println("}");
+              client.println("function doSend(key) {");
+              client.println("  var url = pendingUrl[key]; pendingUrl[key] = null;");
+              client.println("  var xhr = new XMLHttpRequest();");
+              client.println("  xhr.onreadystatechange = function() {");
+              client.println("    if (xhr.readyState === 4) {");
+              client.println("      if (pendingUrl[key]) { doSend(key); } else { inFlight[key] = false; }");
+              client.println("    }");
+              client.println("  };");
+              client.println("  xhr.open('GET', url, true);");
+              client.println("  xhr.send();");
+              client.println("}");
+              client.println("</script></head>");
 
               // Page heading
               client.println("</head><body><h1>Servo Tester</h1>");
@@ -397,9 +424,8 @@ void webInterface()
 
                   client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
-                  client.println("var xhr = new XMLHttpRequest();");
-                  client.println("xhr.open('GET', \"/?Pos" + String(ch) + "=\" + pos + \"&\", true);");
-                  client.println("xhr.send(); } </script>");
+                  client.println("sendThrottled('Pos" + String(ch) + "', \"/?Pos" + String(ch) + "=\" + pos + \"&\");");
+                  client.println("} </script>");
                 }
 
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
@@ -416,9 +442,8 @@ void webInterface()
 
                 client.println("<script> function ServoSpeed(pos) { ");
                 client.println("document.getElementById(\"textServoSpeedValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Speed=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Speed', \"/?Speed=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 client.println("<p><a href=\"/pause/on\"><button class=\"button button1\">Pause</button></a></p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
@@ -447,36 +472,32 @@ void webInterface()
                 client.println("<input type=\"text\" id=\"MaxInput\" class=\"textbox\" oninput=\"Maxchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Maxchange(pos) { ");
                 client.println("document.getElementById(\"textMaxValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Max=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Max', \"/?Max=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 valueString = String(chMin, DEC);
                 client.println("<p><h3>Servo Min (&micro;s): <span id=\"textMinValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"MinInput\" class=\"textbox\" oninput=\"Minchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Minchange(pos) { ");
                 client.println("document.getElementById(\"textMinValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Min=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Min', \"/?Min=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 valueString = String(chCenter, DEC);
                 client.println("<p><h3>Servo Center (&micro;s): <span id=\"textCenterValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"CenterInput\" class=\"textbox\" oninput=\"Centerchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Centerchange(pos) { ");
                 client.println("document.getElementById(\"textCenterValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Center=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Center', \"/?Center=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 valueString = String(SERVO_DEGREES[selectedServo], DEC);
                 client.println("<p><h3>Servo Angle (&deg;): <span id=\"textAngleValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"AngleInput\" class=\"textbox\" oninput=\"Anglechange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Anglechange(pos) { ");
                 client.println("document.getElementById(\"textAngleValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Angle=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Angle', \"/?Angle=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 // Servo Hz / mode --------------------------------------------
                 client.println("<p><h3>Servo Hz / Mode: " + String(SERVO_Hz) + " Hz (" + servoMode + ")</h3>");
@@ -496,9 +517,8 @@ void webInterface()
                 client.println("<input type=\"text\" id=\"PowerInput\" class=\"textbox\" oninput=\"Powerchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Powerchange(pos) { ");
                 client.println("document.getElementById(\"textPowerValue\").innerHTML = pos;");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?Power=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('Power', \"/?Power=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 // SBUS inverted --------------------------------------------
                 client.println("<p><h3>SBUS: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
@@ -516,9 +536,8 @@ void webInterface()
                 client.println("<input type=\"range\" min=\"10\" max=\"40\" step=\"1\" class=\"slider\" id=\"SpeedCurveSlider\" oninput=\"SpeedCurveChange(this.value)\" value=\"" + String(SPEED_CURVE) + "\" /></p>");
                 client.println("<script> function SpeedCurveChange(pos) { ");
                 client.println("document.getElementById(\"textSpeedCurveValue\").innerHTML = (pos/10.0).toFixed(1);");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?SpeedCurve=\" + pos + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('SpeedCurve', \"/?SpeedCurve=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 // WiFi on/off --------------------------------------------
                 client.println("<p><h3>WiFi: " + String(WIFI_ON == 1 ? "On" : "Off") + "</h3>");
@@ -538,16 +557,14 @@ void webInterface()
                 client.println("<p><h3>Home WiFi SSID (Station mode)</h3>");
                 client.println("<input type=\"text\" id=\"StaSsidInput\" class=\"textbox\" oninput=\"StaSsidChange(this.value)\" value=\"" + STA_SSID + "\" /></p>");
                 client.println("<script> function StaSsidChange(val) { ");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?StaSsid=\" + encodeURIComponent(val) + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('StaSsid', \"/?StaSsid=\" + encodeURIComponent(val) + \"&\");");
+                client.println("} </script>");
 
                 client.println("<p><h3>Home WiFi Password (Station mode)</h3>");
                 client.println("<input type=\"password\" id=\"StaPassInput\" class=\"textbox\" oninput=\"StaPassChange(this.value)\" value=\"" + STA_PASSWORD + "\" /></p>");
                 client.println("<script> function StaPassChange(val) { ");
-                client.println("var xhr = new XMLHttpRequest();");
-                client.println("xhr.open('GET', \"/?StaPass=\" + encodeURIComponent(val) + \"&\", true);");
-                client.println("xhr.send(); } </script>");
+                client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
+                client.println("} </script>");
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");
