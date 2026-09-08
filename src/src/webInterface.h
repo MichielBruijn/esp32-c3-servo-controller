@@ -477,18 +477,21 @@ void webInterface()
                   client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
                   client.println(".arcadeLabel{position:fixed;font-size:15px;font-weight:bold;color:#555;}");
                   client.println("#labelLeft{left:5vw;top:50%;transform:translateY(-50%);} #labelRight{left:44vw;top:50%;transform:translateY(-50%);}");
-                  client.println("#labelForward{left:82vw;top:calc(50% - 25vh - 24px);transform:translateX(-50%);} #labelReverse{left:82vw;top:calc(50% + 25vh + 8px);transform:translateX(-50%);}");
+                  client.println("#labelReverse{left:56vw;top:50%;transform:translateY(-50%);} #labelForward{left:95vw;top:50%;transform:translate(-100%,-50%);}");
                   client.println("input[type=range].arcade{-webkit-appearance:none;appearance:none;background:#d3d3d3;border-radius:20px;outline:none;touch-action:none;}");
                   client.println("input[type=range].arcade::-webkit-slider-thumb{-webkit-appearance:none;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("input[type=range].arcade::-moz-range-thumb{width:60px;height:60px;border-radius:50%;background:#4CAF50;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("input[type=range].arcade::-moz-range-track{background:#d3d3d3;border-radius:20px;}");
+                  // Both horizontal now, no vertical/rotated slider - rotating a native range input's
+                  // visual appearance doesn't rotate where the browser actually computes touch/drag
+                  // hit-testing, which is why the "vertical" one was completely unresponsive.
                   client.println("#steerRange{position:fixed;left:5vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
-                  client.println("#throttleRange{position:fixed;width:50vh;height:70px;left:82vw;top:50%;transform:translate(-50%,-50%) rotate(-90deg);}");
+                  client.println("#throttleRange{position:fixed;left:56vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
                   client.println("<span class=\"arcadeLabel\" id=\"labelLeft\">Left</span><span class=\"arcadeLabel\" id=\"labelRight\">Right</span>");
-                  client.println("<span class=\"arcadeLabel\" id=\"labelForward\">Forward</span><span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span>");
+                  client.println("<span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span><span class=\"arcadeLabel\" id=\"labelForward\">Forward</span>");
                   client.println("<input type=\"range\" class=\"arcade\" id=\"steerRange\">");
                   client.println("<input type=\"range\" class=\"arcade\" id=\"throttleRange\">");
 
