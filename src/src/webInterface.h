@@ -466,72 +466,44 @@ void webInterface()
                   int steerMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][steerMode];
                   int steerCenterVal = servoCenterForChannel(JOYSTICK_X_CHANNEL);
 
-                  // Both controls sit in a fixed strip at the bottom of the screen, within
-                  // natural thumb reach for a two-handed landscape grip (like holding a game
-                  // controller) - not stretched up to the top or out to the far edges.
+                  // Native <input type=range> instead of hand-rolled touch tracking: custom
+                  // pointermove+transform code still stuttered on the second simultaneous drag no
+                  // matter how the per-frame work was optimized. Native range inputs hand ALL touch
+                  // tracking (including true independent multi-touch) to the browser/OS's own
+                  // widget, the same one already used smoothly elsewhere on this page - sidesteps
+                  // the problem instead of continuing to chase it in custom JS.
                   client.println("<style>");
                   client.println("body{margin:0;overflow:hidden;}");
                   client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
-                  client.println(".arcadeWrap{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;gap:24px;padding:60px 24px 24px;box-sizing:border-box;}");
-                  client.println(".arcadeZone{flex:1;position:relative;height:50vh;}");
-                  client.println(".arcadeTrack{position:absolute;background:#d3d3d3;border-radius:18px;touch-action:none;user-select:none;}");
-                  client.println("#trackSteer{left:0;right:0;top:50%;height:88px;margin-top:-44px;}");
-                  client.println("#trackThrottle{top:0;bottom:0;right:8px;width:88px;}");
-                  client.println(".arcadeThumb{position:absolute;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
-                  client.println("#thumbSteer{top:50%;left:50%;margin-top:-30px;margin-left:-30px;}");
-                  client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-30px;margin-bottom:-30px;}");
-                  client.println(".arcadeLabelL,.arcadeLabelR{position:absolute;top:50%;transform:translateY(-50%);font-size:15px;font-weight:bold;color:#555;}");
-                  client.println(".arcadeLabelL{left:14px;} .arcadeLabelR{right:14px;}");
-                  client.println(".arcadeLabelTop,.arcadeLabelBottom{position:absolute;left:0;right:0;text-align:center;font-size:15px;font-weight:bold;color:#555;}");
-                  client.println(".arcadeLabelTop{top:8px;} .arcadeLabelBottom{bottom:8px;}");
+                  client.println(".arcadeLabel{position:fixed;font-size:15px;font-weight:bold;color:#555;}");
+                  client.println("#labelLeft{left:5vw;top:50%;transform:translateY(-50%);} #labelRight{left:44vw;top:50%;transform:translateY(-50%);}");
+                  client.println("#labelForward{left:82vw;top:calc(50% - 25vh - 24px);transform:translateX(-50%);} #labelReverse{left:82vw;top:calc(50% + 25vh + 8px);transform:translateX(-50%);}");
+                  client.println("input[type=range].arcade{-webkit-appearance:none;appearance:none;background:#d3d3d3;border-radius:20px;outline:none;touch-action:none;}");
+                  client.println("input[type=range].arcade::-webkit-slider-thumb{-webkit-appearance:none;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
+                  client.println("input[type=range].arcade::-moz-range-thumb{width:60px;height:60px;border-radius:50%;background:#4CAF50;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
+                  client.println("input[type=range].arcade::-moz-range-track{background:#d3d3d3;border-radius:20px;}");
+                  client.println("#steerRange{position:fixed;left:5vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
+                  client.println("#throttleRange{position:fixed;width:50vh;height:70px;left:82vw;top:50%;transform:translate(-50%,-50%) rotate(-90deg);}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
-                  client.println("<div class=\"arcadeWrap\">");
-                  client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackSteer\"><div class=\"arcadeLabelL\">Left</div><div class=\"arcadeThumb\" id=\"thumbSteer\"></div><div class=\"arcadeLabelR\">Right</div></div></div>");
-                  client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackThrottle\"><div class=\"arcadeLabelTop\">Forward</div><div class=\"arcadeThumb\" id=\"thumbThrottle\"></div><div class=\"arcadeLabelBottom\">Reverse</div></div></div>");
-                  client.println("</div>");
+                  client.println("<span class=\"arcadeLabel\" id=\"labelLeft\">Left</span><span class=\"arcadeLabel\" id=\"labelRight\">Right</span>");
+                  client.println("<span class=\"arcadeLabel\" id=\"labelForward\">Forward</span><span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span>");
+                  client.println("<input type=\"range\" class=\"arcade\" id=\"steerRange\">");
+                  client.println("<input type=\"range\" class=\"arcade\" id=\"throttleRange\">");
 
                   client.println("<script>");
-                  client.println("function makeArcadeSlider(trackId, thumbId, horizontal, ch, min, center, max) {");
-                  client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId);");
-                  client.println("  var dragging = false, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
-                  client.println("  function valueFromPointer(e) {"); // Uses the rect cached once in onStart, not re-measured every move - re-measuring forces a layout reflow on every event, which is what made a second simultaneous drag stutter
-                  client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
-                  client.println("    frac = Math.max(0, Math.min(1, frac));");
-                  client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
-                  client.println("  }");
-                  client.println("  function setThumb(val) {");
-                  // transform:translate() is compositor-only (no layout/paint), unlike left/bottom which force a
-                  // reflow on every change - with 2 thumbs animating at once that reflow cost was the real stutter.
-                  // Thumb's base CSS position is already centered on the track, so this is just the pixel offset from there.
-                  client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
-                  client.println("    var offset = (frac - 0.5) * (horizontal ? rect.width : rect.height);");
-                  client.println("    thumb.style.transform = horizontal ? ('translateX(' + offset + 'px)') : ('translateY(' + (-offset) + 'px)');");
-                  client.println("  }");
-                  client.println("  function applyFrame() {"); // Runs at most once per screen paint, decoupled from raw touch-event frequency
-                  client.println("    rafScheduled = false;");
-                  client.println("    if (!dragging) return;");
-                  client.println("    setThumb(pendingVal);");
+                  client.println("function setupArcadeRange(id, ch, min, center, max) {");
+                  client.println("  var el = document.getElementById(id), lastSent = 0;");
+                  client.println("  el.min = min; el.max = max; el.value = center;");
+                  client.println("  el.addEventListener('input', function() {");
                   client.println("    var now = Date.now();");
-                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }"); // Caps send rate so 2 simultaneous drags don't overload the ESP32's WebSocket handling
-                  client.println("  }");
-                  client.println("  function onMove(e) {");
-                  client.println("    if (!dragging) return;");
-                  client.println("    pendingVal = valueFromPointer(e);");
-                  client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
-                  client.println("    e.preventDefault();");
-                  client.println("  }");
-                  client.println("  function onStart(e) { dragging = true; lastSent = 0; rect = track.getBoundingClientRect(); track.setPointerCapture(e.pointerId); onMove(e); }");
-                  client.println("  function onEnd() { if (!dragging) return; dragging = false; pendingVal = center; setThumb(center); sendPos(ch, center); }");
-                  client.println("  track.addEventListener('pointerdown', onStart);");
-                  client.println("  track.addEventListener('pointermove', onMove);");
-                  client.println("  track.addEventListener('pointerup', onEnd);");
-                  client.println("  track.addEventListener('pointercancel', onEnd);");
-                  client.println("  setThumb(center);");
+                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, parseInt(el.value, 10)); }"); // Caps send rate, same as the position sliders elsewhere on this page
+                  client.println("  });");
+                  client.println("  el.addEventListener('change', function() { el.value = center; sendPos(ch, center); });"); // Fires once on release - spring back to center
                   client.println("}");
-                  client.println("makeArcadeSlider('trackSteer','thumbSteer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
-                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("setupArcadeRange('steerRange'," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
+                  client.println("setupArcadeRange('throttleRange'," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
                   client.println("</script>");
                   break;
                 }
