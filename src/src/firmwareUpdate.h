@@ -98,6 +98,13 @@ bool installFirmwareUpdate()
 
   updateInProgress = true;
 
+  // Silence any click-beep immediately - beep() (which normally turns it back off after
+  // beepDuration ms) only runs from loop(), which this function blocks for its whole duration,
+  // so without this the beep that fired on the button press triggering this would otherwise
+  // ring continuously for as long as the update takes.
+  ledcWrite(BUZZER_LEDC_CHANNEL, 0);
+  beepDuration = 0;
+
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.setFont(ArialMT_Plain_16);
