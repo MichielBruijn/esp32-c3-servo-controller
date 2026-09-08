@@ -189,11 +189,15 @@ bool installFirmwareUpdate()
   }
 
   size_t written = Update.writeStream(*stream);
+  bool writtenOk = (written == (size_t)contentLength);
+  bool endOk = Update.end();
+  bool finishedOk = Update.isFinished();
   https.end();
 
-  if (written != (size_t)contentLength || !Update.end() || !Update.isFinished())
+  if (!writtenOk || !endOk || !finishedOk)
   {
-    updateErrorMessage = "Write failed, firmware unchanged";
+    updateErrorMessage = "Write failed: " + String(written) + "/" + String(contentLength) +
+                          " bytes, end=" + String(endOk) + ", " + Update.errorString();
     Serial.println("Firmware update: " + updateErrorMessage);
     Update.abort();
     updateInProgress = false;
