@@ -496,7 +496,8 @@ void webInterface()
               client.println(".buttonActive {background-color: #2196F3;}");
               client.println(".textbox {font-size: 25px; text-align: center; background: var(--card); color: var(--fg); border: 1px solid #888;}");
               client.println("h1,h2,h3 { color: var(--fg); }");
-              client.println(".groupLabel { text-transform: uppercase; font-size: 12px; opacity: 0.6; letter-spacing: 1px; margin: 28px 0 2px; }");
+              client.println(".settingsGroup { background: var(--card); border-radius: 10px; padding: 4px 16px 12px; margin: 14px 0; }");
+              client.println(".settingsGroup h3:first-child { margin-top: 12px; opacity: 0.7; font-size: 15px; text-transform: uppercase; letter-spacing: 1px; }");
               client.println("</style>");
 
               // Throttled sender for slider/textbox updates: at most one request in flight per
@@ -804,9 +805,9 @@ void webInterface()
               {
                 client.println("<h2>Settings</h2>");
 
-                client.println("<p class=\"groupLabel\">Servo</p>");
+                client.println("<div class=\"settingsGroup\"><h3>Servo</h3>");
                 // Channel selector -----------------------------------------
-                client.println("<p><h3>Servo Channel</h3>");
+                client.println("<p><h3>Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == selectedServo) ? "buttonActive" : "button3";
@@ -820,7 +821,7 @@ void webInterface()
                 int chCenter = SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE];
 
                 valueString = String(chMin, DEC);
-                client.println("<p><h3>Servo Min (&micro;s): <span id=\"textMinValue\">" + valueString + "</span>");
+                client.println("<p><h3>Min (&micro;s): <span id=\"textMinValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"MinInput\" class=\"textbox\" oninput=\"Minchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Minchange(pos) { ");
                 client.println("document.getElementById(\"textMinValue\").innerHTML = pos;");
@@ -828,7 +829,7 @@ void webInterface()
                 client.println("} </script>");
 
                 valueString = String(chCenter, DEC);
-                client.println("<p><h3>Servo Center (&micro;s): <span id=\"textCenterValue\">" + valueString + "</span>");
+                client.println("<p><h3>Center (&micro;s): <span id=\"textCenterValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"CenterInput\" class=\"textbox\" oninput=\"Centerchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Centerchange(pos) { ");
                 client.println("document.getElementById(\"textCenterValue\").innerHTML = pos;");
@@ -836,7 +837,7 @@ void webInterface()
                 client.println("} </script>");
 
                 valueString = String(chMax, DEC);
-                client.println("<p><h3>Servo Max (&micro;s): <span id=\"textMaxValue\">" + valueString + "</span>");
+                client.println("<p><h3>Max (&micro;s): <span id=\"textMaxValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"MaxInput\" class=\"textbox\" oninput=\"Maxchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Maxchange(pos) { ");
                 client.println("document.getElementById(\"textMaxValue\").innerHTML = pos;");
@@ -844,7 +845,7 @@ void webInterface()
                 client.println("} </script>");
 
                 valueString = String(SERVO_DEGREES[selectedServo], DEC);
-                client.println("<p><h3>Servo Angle (&deg;): <span id=\"textAngleValue\">" + valueString + "</span>");
+                client.println("<p><h3>Angle (&deg;): <span id=\"textAngleValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"AngleInput\" class=\"textbox\" oninput=\"Anglechange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Anglechange(pos) { ");
                 client.println("document.getElementById(\"textAngleValue\").innerHTML = pos;");
@@ -852,7 +853,7 @@ void webInterface()
                 client.println("} </script>");
 
                 // Servo Hz / mode --------------------------------------------
-                client.println("<p><h3>Servo Hz / Mode: " + String(SERVO_Hz) + " Hz (" + servoMode + ")</h3>");
+                client.println("<p><h3>Mode: " + String(SERVO_Hz) + " Hz (" + servoMode + ")</h3>");
                 {
                   const char *modeNames[] = {"Std.", "NOR", "SHR", "SSR", "SUR", "SXR"};
                   for (int m = (int)STD; m <= (int)SXR; m++)
@@ -863,41 +864,41 @@ void webInterface()
                 }
                 client.println("</p>");
 
-                client.println("<p class=\"groupLabel\">SBUS</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>SBUS</h3>");
                 // SBUS inverted --------------------------------------------
-                client.println("<p><h3>SBUS: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
+                client.println("<p><h3>Direction: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
                 client.println("<a href=\"/?Sbus=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 1 ? "buttonActive" : "button3") + "\">Standard</button></a>");
                 client.println("<a href=\"/?Sbus=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 0 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
 
-                client.println("<p class=\"groupLabel\">Power Scale</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>Power Scale</h3>");
                 // Power scale --------------------------------------------
                 valueString = String(POWER_SCALE, DEC);
-                client.println("<p><h3>Power Scale: <span id=\"textPowerValue\">" + valueString + "</span> (Battery: " + String(batteryVoltage, 2) + "V)</h3>");
+                client.println("<p><h3>Scale: <span id=\"textPowerValue\">" + valueString + "</span> (Battery: " + String(batteryVoltage, 2) + "V)</h3>");
                 client.println("<input type=\"text\" id=\"PowerInput\" class=\"textbox\" oninput=\"Powerchange(this.value)\" value=\"" + valueString + "\" /></p>");
                 client.println("<script> function Powerchange(pos) { ");
                 client.println("document.getElementById(\"textPowerValue\").innerHTML = pos;");
                 client.println("sendThrottled('Power', \"/?Power=\" + pos + \"&\");");
                 client.println("} </script>");
 
-                client.println("<p class=\"groupLabel\">Encoder</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>Encoder</h3>");
                 // Encoder direction --------------------------------------------
-                client.println("<p><h3>Encoder Direction: " + String(ENCODER_INVERTED == 0 ? "Standard" : "Inversed") + "</h3>");
+                client.println("<p><h3>Direction: " + String(ENCODER_INVERTED == 0 ? "Standard" : "Inversed") + "</h3>");
                 client.println("<a href=\"/?Enc=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(ENCODER_INVERTED == 0 ? "buttonActive" : "button3") + "\">Standard</button></a>");
                 client.println("<a href=\"/?Enc=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(ENCODER_INVERTED == 1 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
 
-                client.println("<p class=\"groupLabel\">Speed</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>Speed</h3>");
                 // Speed curve --------------------------------------------
                 valueString = String(SPEED_CURVE / 10.0, 1);
-                client.println("<p><h3>Speed Curve: <span id=\"textSpeedCurveValue\">" + valueString + "</span>");
+                client.println("<p><h3>Curve: <span id=\"textSpeedCurveValue\">" + valueString + "</span>");
                 client.println("<input type=\"range\" min=\"10\" max=\"40\" step=\"1\" class=\"slider\" id=\"SpeedCurveSlider\" oninput=\"SpeedCurveChange(this.value)\" value=\"" + String(SPEED_CURVE) + "\" /></p>");
                 client.println("<script> function SpeedCurveChange(pos) { ");
                 client.println("document.getElementById(\"textSpeedCurveValue\").innerHTML = (pos/10.0).toFixed(1);");
                 client.println("sendThrottled('SpeedCurve', \"/?SpeedCurve=\" + pos + \"&\");");
                 client.println("} </script>");
 
-                client.println("<p class=\"groupLabel\">Joystick</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>Joystick</h3>");
                 // Joystick Mode channel mapping (which channel each control drives) -----
-                client.println("<p><h3>Joystick Steer -> Channel</h3>");
+                client.println("<p><h3>Steer -&gt; Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
@@ -905,7 +906,7 @@ void webInterface()
                 }
                 client.println("</p>");
 
-                client.println("<p><h3>Joystick Throttle -> Channel</h3>");
+                client.println("<p><h3>Throttle -&gt; Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
@@ -913,7 +914,7 @@ void webInterface()
                 }
                 client.println("</p>");
 
-                client.println("<p class=\"groupLabel\">WiFi</p>");
+                client.println("</div><div class=\"settingsGroup\"><h3>WiFi</h3>");
                 // WiFi on/off --------------------------------------------
                 client.println("<p><h3>WiFi: " + String(WIFI_ON == 1 ? "On" : "Off") + "</h3>");
                 client.println("<a href=\"/?WifiOn=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_ON == 1 ? "buttonActive" : "button3") + "\">On</button></a>");
@@ -940,6 +941,7 @@ void webInterface()
                 client.println("<script> function StaPassChange(val) { ");
                 client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
                 client.println("} </script>");
+                client.println("</div>");
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");

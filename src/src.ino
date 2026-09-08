@@ -2001,7 +2001,7 @@ void MenuUpdate()
       display.drawString(128, 42, servoMode);
       break;
     case 6:
-      display.drawString(64, 17, "SBUS");
+      display.drawString(64, 17, "Direction");
       if (SBUS_INVERTED == 1)
       {
         display.drawString(64, 37, standardString[LANGUAGE]);
@@ -2012,11 +2012,10 @@ void MenuUpdate()
       }
       break;
     case 7:
+      // No text label here - the header already says "Power Scale"
+      display.drawString(64, 17, String(POWER_SCALE));
       display.setFont(ArialMT_Plain_10);
-      display.drawString(64, 18, PowerScaleString[LANGUAGE]);
-      display.drawString(64, 29, String(POWER_SCALE));
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 43, String(batteryVoltage, 2) + "V");
+      display.drawString(64, 40, String(batteryVoltage, 2) + "V");
       break;
     case 8:
       display.drawString(64, 17, encoderDirectionString[LANGUAGE]);
@@ -2034,15 +2033,15 @@ void MenuUpdate()
       display.drawString(64, 37, String(SPEED_CURVE / 10.0, 1));
       break;
     case 10:
-      display.drawString(64, 17, "Joystick Steer");
+      display.drawString(64, 17, "Steer");
       display.drawString(64, 37, "CH" + String(JOYSTICK_X_CHANNEL + 1));
       break;
     case 11:
-      display.drawString(64, 17, "Joystick Throttle");
+      display.drawString(64, 17, "Throttle");
       display.drawString(64, 37, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
       break;
     case 12:
-      display.drawString(64, 17, "Wifi");
+      display.drawString(64, 17, "On/Off");
       if (WIFI_ON == 1)
       {
         display.drawString(64, 37, onString[LANGUAGE]);
@@ -2053,7 +2052,7 @@ void MenuUpdate()
       }
       break;
     case 13:
-      display.drawString(64, 17, "Wifi Mode");
+      display.drawString(64, 17, "Mode");
       if (WIFI_MODE == WIFI_STATION_MODE)
       {
         display.drawString(64, 37, "Station");
@@ -2064,14 +2063,14 @@ void MenuUpdate()
       }
       break;
     case 14:
-      display.drawString(64, 17, factoryResetString[LANGUAGE]);
+      // No text label here - the header already says "Factory Reset"
       if (RESET_EEPROM == 1)
       {
-        display.drawString(64, 37, yesString[LANGUAGE]);
+        display.drawString(64, 25, yesString[LANGUAGE]);
       }
       else
       {
-        display.drawString(64, 37, noString[LANGUAGE]);
+        display.drawString(64, 25, noString[LANGUAGE]);
       }
       break;
     }

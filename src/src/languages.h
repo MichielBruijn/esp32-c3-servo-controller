@@ -11,17 +11,18 @@ String noString[] {"No", "Nein", "Non"};
 String yesString[] {"Yes", "Ja", "Oui"};
 String factoryResetString[] {"! Factory Reset !", "! Werksreset !", "! Réinitialiser !"};
 String servoStepsString[] {"Servo Steps µs", "Servo Schritte µs", "étape servo µs"};
-String channelString[] {"Servo Channel", "Servo Kanal", "Canal servo"};
-String servoMaxString[] {"Servo Max. µs", "Servo Max. µs", "Servo Max. µs"};
-String servoMinString[] {"Servo Min. µs", "Servo Min. µs", "Servo Min. µs"};
-String servoCenterString[] {"Servo Center µs", "Servo Mitte µs", "Servo centre µs"};
-String servoAngleString[] {"Servo Angle", "Servo Winkel", "Angle servo"};
-String servoHzString[] {"Servo Hz", "Servo Hz", "Servo Hz"};
-String PowerScaleString[] {"POWER Scale", "POWER Skala", "échelle POWER"};
+// Short forms - the Settings screen's header already names the group ("Servo"/"Encoder"/
+// "Speed"/etc., see settingsGroupName() in src.ino), so these no longer repeat it.
+String channelString[] {"Channel", "Kanal", "Canal"};
+String servoMaxString[] {"Max. µs", "Max. µs", "Max. µs"};
+String servoMinString[] {"Min. µs", "Min. µs", "Min. µs"};
+String servoCenterString[] {"Center µs", "Mitte µs", "Centre µs"};
+String servoAngleString[] {"Angle", "Winkel", "Angle"};
+String servoHzString[] {"Mode", "Mode", "Mode"};
 String inversedString[] {"Inversed", "Invertiert", "Inversé"};
 String standardString[] {"Standard", "Standart", "Défaut"};
-String encoderDirectionString[] {"Encoder direction", "Encoder Richtung", "Encodeur direct."};
-String speedCurveString[] {"Speed Curve", "Geschw. Kurve", "Courbe vitesse"};
+String encoderDirectionString[] {"Direction", "Richtung", "Direction"};
+String speedCurveString[] {"Curve", "Kurve", "Courbe"};
 
 // Impuls lesen
 String impulseString[] {"Impulse", "Impuls", "Impulsion"};
