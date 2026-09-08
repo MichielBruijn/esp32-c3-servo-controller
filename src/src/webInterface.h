@@ -320,6 +320,18 @@ void webInterface()
               {
                 Menu = Joystick_Menu;
               }
+              if (header.indexOf("GET /80/on") >= 0)
+              {
+                Menu = Info_Menu;
+              }
+              if (header.indexOf("GET /90/on") >= 0)
+              {
+                Menu = Oscilloscope_Menu;
+              }
+              if (header.indexOf("GET /100/on") >= 0)
+              {
+                Menu = SignalGenerator_Menu;
+              }
               if (header.indexOf("GET /120/on") >= 0)
               {
                 Menu = Settings_Menu;
@@ -475,6 +487,35 @@ void webInterface()
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
+              case Info_Menu:
+                client.println("<h2>Info</h2>");
+
+                client.println("<h3>Wifi</h3>");
+                if (WIFI_ON == 1)
+                {
+                  if (WIFI_MODE == WIFI_STATION_MODE && !wifiStaFallback)
+                  {
+                    client.println("<p>Station - SSID: " + STA_SSID + "<br>" + ipAddressString[LANGUAGE] + " " + wifiIpString + "<br>servotester.local</p>");
+                  }
+                  else
+                  {
+                    client.println("<p>" + String(wifiStaFallback ? "Access Point (fallback)" : "Access Point") + " - SSID: " + String(ssid) + "<br>" + passwordString[LANGUAGE] + " " + String(password) + "<br>" + ipAddressString[LANGUAGE] + " " + wifiIpString + "</p>");
+                  }
+                }
+                else
+                {
+                  client.println("<p>Off</p>");
+                }
+
+                client.println("<h3>Controls (physical device)</h3>");
+                client.println("<p>Turn: move through list / adjust value<br>Short press: select<br>Long press: back<br>Double-click: next channel</p>");
+
+                client.println("<h3>Firmware</h3>");
+                client.println("<p>v" + String(codeVersion) + "</p>");
+
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
+
               case Joystick_Menu:
                 client.println("<h2>Joystick</h2>");
                 client.println("<p>Physical analog stick on the device itself - this page just shows what it's currently doing.</p>");
@@ -497,6 +538,18 @@ void webInterface()
                   client.println("<p>Learned raw ADC range - X: " + String(joystickXRawMin) + "-" + String(joystickXRawMax) + " / Y: " + String(joystickYRawMin) + "-" + String(joystickYRawMax) + " (0-4095 max, 2048 = center)</p>");
                 }
 
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
+
+              case Oscilloscope_Menu:
+                client.println("<h2>Oscilloscope</h2>");
+                client.println("<p>OLED-only feature - the live scope trace isn't available over the web, it's switched on now on the device itself. Probe input: GPIO39, 0-3.3V RC signals only.</p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
+
+              case SignalGenerator_Menu:
+                client.println("<h2>Signal Generator</h2>");
+                client.println("<p>OLED-only feature - waveform/frequency/ratio are set on the device itself, it's switched on now. Output: GPIO25, 0-3.3V.</p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
@@ -649,6 +702,9 @@ void webInterface()
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
                 client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Joystick</button></a></p>");
+                client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Info</button></a></p>");
+                client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Oscilloscope</button></a></p>");
+                client.println("<p><a href=\"/100/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Settings</button></a></p>");
                 break; // Not needed when statement(s) are present
               }

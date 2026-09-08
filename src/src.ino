@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.36"; // Software revision.
+char codeVersion[] = "0.37"; // Software revision.
 
 //
 // =======================================================================================================
