@@ -441,8 +441,12 @@ void webInterface()
               client.println("}");
               client.println("</script></head>");
 
-              // Page heading
-              client.println("</head><body><h1>Servo Tester</h1>");
+              // Page heading (skipped for Arcade Mode - full-screen touch page, no room for it)
+              client.println("</head><body>");
+              if (!webArcadeMode)
+              {
+                client.println("<h1>Servo Tester</h1>");
+              }
 
               switch (Menu)
               {
@@ -472,7 +476,7 @@ void webInterface()
                   client.println(".arcadeZone{flex:1;position:relative;height:50vh;}");
                   client.println(".arcadeTrack{position:absolute;background:#d3d3d3;border-radius:18px;touch-action:none;user-select:none;}");
                   client.println("#trackSteer{left:0;right:0;top:50%;height:88px;margin-top:-44px;}");
-                  client.println("#trackThrottle{top:0;bottom:0;left:50%;width:88px;margin-left:-44px;}");
+                  client.println("#trackThrottle{top:0;bottom:0;right:8px;width:88px;}");
                   client.println(".arcadeThumb{position:absolute;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("#thumbSteer{top:50%;left:50%;margin-top:-30px;margin-left:-30px;}");
                   client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-30px;margin-bottom:-30px;}");
@@ -797,8 +801,12 @@ void webInterface()
                 break; // Not needed when statement(s) are present
               }
 
-              // Shown on every page - source/copies for anyone who finds this device
-              client.println("<p style=\"margin-top:20px;\"><a href=\"https://github.com/MichielBruijn/esp32-servo-tester\">github.com/MichielBruijn/esp32-servo-tester</a></p>");
+              // Shown on every page except Arcade Mode - source/copies for anyone who finds this
+              // device, but a full-screen touch page has no room for it
+              if (!webArcadeMode)
+              {
+                client.println("<p style=\"margin-top:20px;\"><a href=\"https://github.com/MichielBruijn/esp32-servo-tester\">github.com/MichielBruijn/esp32-servo-tester</a></p>");
+              }
 
               client.println("</body></html>");
               } // if (!xhrOnly)
