@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.37"; // Software revision.
+char codeVersion[] = "0.38"; // Software revision.
 
 //
 // =======================================================================================================
@@ -651,6 +651,120 @@ void setWifiChannelRange()
   esp_wifi_set_country(&country);
 }
 
+// Station connect is split into begin/await/finish (instead of one function that blocks for up
+// to 10s) so setup() can kick it off before the splash/help screens and only wait out whatever's
+// left of the timeout afterward - the connect attempt and those screens then overlap instead of
+// stacking, which used to make Station mode the single biggest chunk of boot time.
+unsigned long wifiConnectStartMillis;
+
+void wifiStationBegin()
+{
+  // Try to join the configured home network first, so the device stays on the same
+  // network as the phone/laptop already using it - no need to switch WiFi to reach it.
+  Serial.print("Connecting to WiFi network: ");
+  Serial.println(STA_SSID);
+
+  // Must be set before WiFi.mode(), which applies the hostname to the network interface
+  // at that point in time - setting it after mode() is a no-op for the netif already created.
+  WiFi.setHostname("servotester"); // else the DHCP hostname defaults to "esp32-<MAC suffix>"
+  WiFi.mode(WIFI_STA);
+  setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
+
+  wifi_country_t currentCountry;
+  esp_wifi_get_country(&currentCountry);
+  Serial.printf("WiFi country: %s, channels %u-%u, policy %d\n",
+                 currentCountry.cc, currentCountry.schan,
+                 currentCountry.schan + currentCountry.nchan - 1, currentCountry.policy);
+
+  // Multi-AP networks (e.g. mesh/UniFi setups) broadcast the same SSID from several access
+  // points on different channels. WiFi.begin() alone connects to whichever one it happens to
+  // find first while scanning channel-by-channel, which is often not the strongest one. So
+  // scan ourselves and explicitly pin the connection to the strongest matching AP.
+  Serial.println("Scanning...");
+  int scanCount = WiFi.scanNetworks();
+  int bestIndex = -1;
+  for (int i = 0; i < scanCount; i++)
+  {
+    Serial.printf("  [%2d] ch%2d  %4ddBm  %s\n", i, WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i).c_str());
+    if (WiFi.SSID(i) == STA_SSID && (bestIndex == -1 || WiFi.RSSI(i) > WiFi.RSSI(bestIndex)))
+    {
+      bestIndex = i;
+    }
+  }
+
+  int32_t bestChannel = 0;
+  const uint8_t *bestBssid = NULL;
+  if (bestIndex != -1)
+  {
+    bestChannel = WiFi.channel(bestIndex);
+    bestBssid = WiFi.BSSID(bestIndex);
+    Serial.printf("Strongest match: ch%d %ddBm\n", bestChannel, WiFi.RSSI(bestIndex));
+  }
+  WiFi.scanDelete();
+
+  WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str(), bestChannel, bestBssid);
+  wifiConnectStartMillis = millis();
+}
+
+// Waits up to timeoutMs *measured from wifiConnectStartMillis* (not from when this is called) -
+// so calling it later, after other work already spent part of that budget, only waits out
+// whatever's left instead of a fresh full timeout.
+bool wifiStationAwaitConnected(unsigned long timeoutMs)
+{
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiConnectStartMillis < timeoutMs)
+  {
+    delay(250);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void wifiStationFinishConnected()
+{
+  wifiIpString = WiFi.localIP().toString();
+  Serial.print("Connected, IP: ");
+  Serial.println(wifiIpString);
+
+  if (MDNS.begin("servotester"))
+  {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("mDNS responder started: http://servotester.local");
+  }
+
+  digitalWrite(BUZZER_PIN, LOW); // Buzzer off
+  Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
+  WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
+  Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
+
+  server.begin(); // Start Webserver
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+}
+
+void wifiStartAccessPoint()
+{
+  Serial.println(connectingAccessPointString[LANGUAGE]);
+  WiFi.mode(WIFI_STA);
+  setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
+  WiFi.softAP(ssid, password);
+
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print(apIpAddressString[LANGUAGE]);
+  Serial.println(IP);
+  wifiIpString = IP.toString();
+
+  digitalWrite(BUZZER_PIN, LOW); // Buzzer off
+
+  // SSID, password and IP are shown on demand in the Settings menu (Wifi item) instead of a boot popup
+
+  Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
+  WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
+  Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
+
+  server.begin(); // Start Webserver
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+}
+
 void wifiSetup()
 {
   MDNS.end(); // Clear any previous responder before (re)configuring WiFi, safe even if never started
@@ -660,49 +774,6 @@ void wifiSetup()
   { // Wifi Ein
     if (WIFI_MODE == WIFI_STATION_MODE && STA_SSID.length() > 0)
     {
-      // Try to join the configured home network first, so the device stays on the same
-      // network as the phone/laptop already using it - no need to switch WiFi to reach it.
-      Serial.print("Connecting to WiFi network: ");
-      Serial.println(STA_SSID);
-
-      // Must be set before WiFi.mode(), which applies the hostname to the network interface
-      // at that point in time - setting it after mode() is a no-op for the netif already created.
-      WiFi.setHostname("servotester"); // else the DHCP hostname defaults to "esp32-<MAC suffix>"
-      WiFi.mode(WIFI_STA);
-      setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
-
-      wifi_country_t currentCountry;
-      esp_wifi_get_country(&currentCountry);
-      Serial.printf("WiFi country: %s, channels %u-%u, policy %d\n",
-                     currentCountry.cc, currentCountry.schan,
-                     currentCountry.schan + currentCountry.nchan - 1, currentCountry.policy);
-
-      // Multi-AP networks (e.g. mesh/UniFi setups) broadcast the same SSID from several access
-      // points on different channels. WiFi.begin() alone connects to whichever one it happens to
-      // find first while scanning channel-by-channel, which is often not the strongest one. So
-      // scan ourselves and explicitly pin the connection to the strongest matching AP.
-      Serial.println("Scanning...");
-      int scanCount = WiFi.scanNetworks();
-      int bestIndex = -1;
-      for (int i = 0; i < scanCount; i++)
-      {
-        Serial.printf("  [%2d] ch%2d  %4ddBm  %s\n", i, WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i).c_str());
-        if (WiFi.SSID(i) == STA_SSID && (bestIndex == -1 || WiFi.RSSI(i) > WiFi.RSSI(bestIndex)))
-        {
-          bestIndex = i;
-        }
-      }
-
-      int32_t bestChannel = 0;
-      const uint8_t *bestBssid = NULL;
-      if (bestIndex != -1)
-      {
-        bestChannel = WiFi.channel(bestIndex);
-        bestBssid = WiFi.BSSID(bestIndex);
-        Serial.printf("Strongest match: ch%d %ddBm\n", bestChannel, WiFi.RSSI(bestIndex));
-      }
-      WiFi.scanDelete();
-
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.setFont(ArialMT_Plain_10);
@@ -710,34 +781,10 @@ void wifiSetup()
       display.drawString(64, 34, STA_SSID);
       display.display();
 
-      WiFi.begin(STA_SSID.c_str(), STA_PASSWORD.c_str(), bestChannel, bestBssid);
-
-      unsigned long connectStartMillis = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - connectStartMillis < 10000)
+      wifiStationBegin();
+      if (wifiStationAwaitConnected(10000))
       {
-        delay(250);
-      }
-
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        wifiIpString = WiFi.localIP().toString();
-        Serial.print("Connected, IP: ");
-        Serial.println(wifiIpString);
-
-        if (MDNS.begin("servotester"))
-        {
-          MDNS.addService("http", "tcp", 80);
-          Serial.println("mDNS responder started: http://servotester.local");
-        }
-
-        digitalWrite(BUZZER_PIN, LOW); // Buzzer off
-        Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
-        WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
-        Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
-
-        server.begin(); // Start Webserver
-        webSocket.begin();
-        webSocket.onEvent(webSocketEvent);
+        wifiStationFinishConnected();
         return;
       }
 
@@ -748,27 +795,7 @@ void wifiSetup()
     }
 
     // Access Point mode (selected directly, or a failed Station join falling back to it)
-    Serial.println(connectingAccessPointString[LANGUAGE]);
-    WiFi.mode(WIFI_STA);
-    setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
-    WiFi.softAP(ssid, password);
-
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print(apIpAddressString[LANGUAGE]);
-    Serial.println(IP);
-    wifiIpString = IP.toString();
-
-    digitalWrite(BUZZER_PIN, LOW); // Buzzer off
-
-    // SSID, password and IP are shown on demand in the Settings menu (Wifi item) instead of a boot popup
-
-    Serial.printf("\nWiFi Tx Power Level: %u", WiFi.getTxPower());
-    WiFi.setTxPower(cpType); // WiFi and ESP-Now power according to "0_generalSettings.h"
-    Serial.printf("\nWiFi Tx Power Level changed to: %u\n\n", WiFi.getTxPower());
-
-    server.begin(); // Start Webserver
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent);
+    wifiStartAccessPoint();
   }
 
   // WiFi off
@@ -857,6 +884,20 @@ void setup()
   // Setup OLED
   display.init();
   display.flipScreenVertically();
+  display.clear();
+  display.display(); // Blank rather than garbled/uninitialized while Station connect starts below
+
+  // Kick off a WiFi Station connect attempt now (if configured), so it runs in the background
+  // while the splash/help screens below are shown, instead of waiting for it (up to 10s)
+  // afterward - the two now overlap instead of stacking, since that connect attempt used to be
+  // the single biggest chunk of boot time.
+  bool attemptingStationBoot = (WIFI_ON == 1 && WIFI_MODE == WIFI_STATION_MODE && STA_SSID.length() > 0);
+  if (attemptingStationBoot)
+  {
+    MDNS.end();
+    wifiStaFallback = false;
+    wifiStationBegin();
+  }
 
   // Show splash screen
   display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -888,7 +929,25 @@ void setup()
     // Wait for button release, so the press doesn't leak into the main menu
   }
 
-  wifiSetup();
+  if (attemptingStationBoot)
+  {
+    // Only waits out whatever's left of the 10s budget - most of it was likely already spent
+    // above, during the splash/help screens.
+    if (wifiStationAwaitConnected(10000))
+    {
+      wifiStationFinishConnected();
+    }
+    else
+    {
+      Serial.println("Could not join WiFi network, falling back to Access Point");
+      wifiStaFallback = true;
+      wifiStartAccessPoint();
+    }
+  }
+  else
+  {
+    wifiSetup(); // Access Point mode, or WiFi off - nothing worth overlapping, just set it up now
+  }
 
   encoder.setCount(Menu);
   servo_pos[0] = 1500;
