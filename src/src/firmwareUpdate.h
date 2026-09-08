@@ -108,21 +108,25 @@ bool installFirmwareUpdate()
   // GitHub release assets redirect (302) to a signed objects.githubusercontent.com URL - a
   // different host. HTTPClient's own setFollowRedirects() reuses the same underlying
   // connection across that redirect if the old one is still open, which sends the follow-up
-  // request to the wrong host and hangs waiting for a response that never comes. So the
-  // redirect is resolved manually here instead, with a fresh WiFiClientSecure + HTTPClient
-  // per hop, and explicit timeouts so a stalled connection can't hang the device indefinitely.
+  // request to the wrong host and hangs waiting for a response that never comes. Resolving the
+  // redirect manually with client.stop()+reuse of one WiFiClientSecure instance turned out to
+  // have the same problem one level down: the socket's internal state doesn't fully reset,
+  // and the next begin() calls setsockopt() on a stale/invalid file descriptor (observed as
+  // "setSocketOption(): fail on 0, errno: 9, Bad file number" on serial, followed by a hang).
+  // So `client` and `https` are declared *inside* the loop body instead - a genuinely new
+  // object per hop, destroyed and rebuilt by the language itself on each iteration, never
+  // reused across a host change. The actual download+flash happens inline within the loop at
+  // the point the real (non-redirect) response is found, so those fresh objects and the
+  // stream they own stay alive for exactly as long as they're needed.
   String url = latestFirmwareUrl;
   const char *locationHeader[] = {"Location"};
-  int contentLength = 0;
-  WiFiClient *stream = nullptr;
-  WiFiClientSecure client;
-  HTTPClient https;
 
   for (int hop = 0; hop < 5; hop++)
   {
-    client.stop();
+    WiFiClientSecure client;
     client.setInsecure();
     client.setTimeout(15000);
+    HTTPClient https;
     https.setUserAgent("esp32-servo-tester");
     https.setConnectTimeout(15000);
     https.setTimeout(15000);
@@ -153,7 +157,7 @@ bool installFirmwareUpdate()
         return false;
       }
       url = location;
-      continue; // Next hop opens a fresh connection to whatever host `location` points at
+      continue; // client/https are destroyed here; next iteration builds brand new ones
     }
 
     if (httpCode != HTTP_CODE_OK)
@@ -165,52 +169,55 @@ bool installFirmwareUpdate()
       return false;
     }
 
-    contentLength = https.getSize();
-    stream = https.getStreamPtr();
-    break; // Got the actual file - fall through to writing it below, https/client stay open
-  }
+    int contentLength = https.getSize();
+    if (contentLength <= 0)
+    {
+      updateErrorMessage = "Unknown download size";
+      Serial.println("Firmware update: " + updateErrorMessage);
+      https.end();
+      updateInProgress = false;
+      return false;
+    }
 
-  if (!stream || contentLength <= 0)
-  {
-    updateErrorMessage = stream ? "Unknown download size" : "Too many redirects";
-    Serial.println("Firmware update: " + updateErrorMessage);
+    if (!Update.begin(contentLength))
+    {
+      updateErrorMessage = "Not enough OTA space";
+      Serial.println("Firmware update: " + updateErrorMessage);
+      https.end();
+      updateInProgress = false;
+      return false;
+    }
+
+    WiFiClient *stream = https.getStreamPtr();
+    size_t written = Update.writeStream(*stream);
+    bool writtenOk = (written == (size_t)contentLength);
+    bool endOk = Update.end();
+    bool finishedOk = Update.isFinished();
     https.end();
-    updateInProgress = false;
-    return false;
+
+    if (!writtenOk || !endOk || !finishedOk)
+    {
+      updateErrorMessage = "Write failed: " + String(written) + "/" + String(contentLength) +
+                            " bytes, end=" + String(endOk) + ", " + Update.errorString();
+      Serial.println("Firmware update: " + updateErrorMessage);
+      Update.abort();
+      updateInProgress = false;
+      return false;
+    }
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, "Update complete");
+    display.drawString(64, 45, "Restarting...");
+    display.display();
+    delay(1500);
+    ESP.restart();
+    return true; // Unreachable, but keeps the compiler happy about all paths returning
   }
 
-  if (!Update.begin(contentLength))
-  {
-    updateErrorMessage = "Not enough OTA space";
-    Serial.println("Firmware update: " + updateErrorMessage);
-    https.end();
-    updateInProgress = false;
-    return false;
-  }
-
-  size_t written = Update.writeStream(*stream);
-  bool writtenOk = (written == (size_t)contentLength);
-  bool endOk = Update.end();
-  bool finishedOk = Update.isFinished();
-  https.end();
-
-  if (!writtenOk || !endOk || !finishedOk)
-  {
-    updateErrorMessage = "Write failed: " + String(written) + "/" + String(contentLength) +
-                          " bytes, end=" + String(endOk) + ", " + Update.errorString();
-    Serial.println("Firmware update: " + updateErrorMessage);
-    Update.abort();
-    updateInProgress = false;
-    return false;
-  }
-
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 25, "Update complete");
-  display.drawString(64, 45, "Restarting...");
-  display.display();
-  delay(1500);
-  ESP.restart();
-  return true; // Unreachable, but keeps the compiler happy about all paths returning
+  updateErrorMessage = "Too many redirects";
+  Serial.println("Firmware update: " + updateErrorMessage);
+  updateInProgress = false;
+  return false;
 }
