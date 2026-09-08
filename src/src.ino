@@ -2112,7 +2112,13 @@ void MenuUpdate()
           SERVO_DEGREES[selectedServo] -= encoderSpeed;
           break;
         case 5:
-          SERVO_MODE--;
+          // SERVO_MODE is a "legacy scalar" servoModes() overwrites from
+          // SERVO_MODE_PER_GROUP every time it runs - changing it directly here got
+          // silently discarded (and SERVO_Hz/servoMode never refreshed) since nothing
+          // called servoModes() again afterwards. Write the real per-group value instead,
+          // then refresh.
+          SERVO_MODE_PER_GROUP[servoTimerGroup(selectedServo)] = constrain(SERVO_MODE - 1, (int)STD, (int)SXR);
+          servoModes();
           break;
         case 6:
           SBUS_INVERTED--;
@@ -2172,7 +2178,8 @@ void MenuUpdate()
           SERVO_DEGREES[selectedServo] += encoderSpeed;
           break;
         case 5:
-          SERVO_MODE++;
+          SERVO_MODE_PER_GROUP[servoTimerGroup(selectedServo)] = constrain(SERVO_MODE + 1, (int)STD, (int)SXR);
+          servoModes();
           break;
         case 6:
           SBUS_INVERTED++;

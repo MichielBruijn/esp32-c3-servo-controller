@@ -126,7 +126,7 @@ void webInterface()
                 client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
                 client.println("<title>Upload Firmware</title>");
                 client.println("<script>(function(){if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');})();</script>");
-                client.println("<style>:root{--bg:#f4f4f4;--fg:#000000;} [data-theme=\"dark\"]{--bg:#121212;--fg:#e8e8e8;}");
+                client.println("<style>:root{--bg:#dde3e8;--fg:#000000;} [data-theme=\"dark\"]{--bg:#0a0a0a;--fg:#e8e8e8;}");
                 client.println("html{font-family:Helvetica;text-align:center;background:var(--bg);color:var(--fg);} .button{border:none;color:white;padding:10px 40px;width:80%;font-size:20px;margin:8px;cursor:pointer;border-radius:4px;} .button1{background-color:#4CAF50;} .button2{background-color:#ff0000;}</style>");
                 client.println("</head><body>");
                 client.println("<h1>Servo Tester</h1><h2>Upload Firmware</h2>");
@@ -477,8 +477,8 @@ void webInterface()
               client.println("<script>(function(){if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');})();</script>");
 
               // CSS for the buttons - feel free to change background color and font size to your liking
-              client.println("<style>:root{--bg:#f4f4f4;--fg:#000000;--card:#ffffff;}");
-              client.println("[data-theme=\"dark\"]{--bg:#121212;--fg:#e8e8e8;--card:#1e1e1e;}");
+              client.println("<style>:root{--bg:#dde3e8;--fg:#000000;--card:#ffffff;--card-border:rgba(0,0,0,0.12);}");
+              client.println("[data-theme=\"dark\"]{--bg:#0a0a0a;--fg:#e8e8e8;--card:#262626;--card-border:rgba(255,255,255,0.12);}");
               client.println("html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; background: var(--bg); color: var(--fg); }");
               client.println("body { background: var(--bg); color: var(--fg); }");
               client.println(".button { border: yes; color: white; padding: 10px 40px; width: 100%;");
@@ -496,7 +496,7 @@ void webInterface()
               client.println(".buttonActive {background-color: #2196F3;}");
               client.println(".textbox {font-size: 25px; text-align: center; background: var(--card); color: var(--fg); border: 1px solid #888;}");
               client.println("h1,h2,h3 { color: var(--fg); }");
-              client.println(".settingsGroup { background: var(--card); border-radius: 10px; padding: 4px 16px 12px; margin: 14px 0; }");
+              client.println(".settingsGroup { background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 4px 16px 12px; margin: 14px 0; }");
               client.println(".settingsGroup h3:first-child { margin-top: 12px; opacity: 0.7; font-size: 15px; text-transform: uppercase; letter-spacing: 1px; }");
               client.println("</style>");
 
@@ -889,6 +889,7 @@ void webInterface()
                 client.println("</div><div class=\"settingsGroup\"><h3>Speed</h3>");
                 // Speed curve --------------------------------------------
                 valueString = String(SPEED_CURVE / 10.0, 1);
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">How much turning the rotary encoder faster ramps up the step size - most noticeable moving a servo's position by hand in Manual Mode.</p>");
                 client.println("<p><h3>Curve: <span id=\"textSpeedCurveValue\">" + valueString + "</span>");
                 client.println("<input type=\"range\" min=\"10\" max=\"40\" step=\"1\" class=\"slider\" id=\"SpeedCurveSlider\" oninput=\"SpeedCurveChange(this.value)\" value=\"" + String(SPEED_CURVE) + "\" /></p>");
                 client.println("<script> function SpeedCurveChange(pos) { ");
