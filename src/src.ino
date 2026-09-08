@@ -1927,8 +1927,8 @@ void MenuUpdate()
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 0, settingsString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, SettingsItem == 0 ? "  Settings >" : (SettingsItem == 14 ? "< Settings  " : "< Settings >"));
     display.setFont(ArialMT_Plain_16);
     switch (SettingsItem)
     {
@@ -2190,14 +2190,14 @@ void MenuUpdate()
       }
     }
 
-    // Menu range -------------------------------------
+    // Menu range - clamp, don't wrap around, matching the top-level list's own boundary behavior
     if (SettingsItem > 14)
     {
-      SettingsItem = 0;
+      SettingsItem = 14;
     }
     else if (SettingsItem < 0)
     {
-      SettingsItem = 14;
+      SettingsItem = 0;
     }
 
     // Limits -----------------------------------------
