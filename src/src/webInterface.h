@@ -479,18 +479,19 @@ void webInterface()
                   client.println("input[type=range].arcade::-moz-range-thumb{width:60px;height:60px;border-radius:50%;background:#4CAF50;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("input[type=range].arcade::-moz-range-track{background:#d3d3d3;border-radius:20px;}");
                   client.println("#steerRange{position:fixed;left:5vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
-                  // -moz-orient:vertical is Firefox's own genuinely-vertical mode for range inputs -
-                  // not a CSS rotation of a horizontal one. Rotating a native range input's visual
-                  // appearance via transform does NOT rotate where the browser computes touch/drag
-                  // hit-testing, which is exactly why that approach was completely unresponsive.
-                  client.println("#throttleRange{position:fixed;-moz-orient:vertical;width:70px;height:50vh;left:82vw;top:50%;transform:translate(-50%,-50%);}");
+                  // Neither rotating a native range input nor Firefox's own -moz-orient:vertical
+                  // gave a working vertical control on Android Firefox (the latter fell back to a
+                  // horizontal drag range squeezed into a narrow box). Custom track+thumb it is, for
+                  // this one control only - steer stays native since that already works fine.
+                  client.println("#throttleTrack{position:fixed;left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;background:#d3d3d3;border-radius:20px;touch-action:none;user-select:none;}");
+                  client.println("#throttleThumb{position:absolute;top:50%;left:50%;width:60px;height:60px;margin-top:-30px;margin-left:-30px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
                   client.println("<span class=\"arcadeLabel\" id=\"labelLeft\">Left</span><span class=\"arcadeLabel\" id=\"labelRight\">Right</span>");
                   client.println("<span class=\"arcadeLabel\" id=\"labelForward\">Forward</span><span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span>");
                   client.println("<input type=\"range\" class=\"arcade\" id=\"steerRange\">");
-                  client.println("<input type=\"range\" class=\"arcade\" id=\"throttleRange\">");
+                  client.println("<div id=\"throttleTrack\"><div id=\"throttleThumb\"></div></div>");
 
                   client.println("<script>");
                   client.println("function setupArcadeRange(id, ch, min, center, max) {");
@@ -503,7 +504,40 @@ void webInterface()
                   client.println("  el.addEventListener('change', function() { el.value = center; sendPos(ch, center); });"); // Fires once on release - spring back to center
                   client.println("}");
                   client.println("setupArcadeRange('steerRange'," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
-                  client.println("setupArcadeRange('throttleRange'," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+
+                  client.println("function setupThrottleTrack(ch, min, center, max) {");
+                  client.println("  var track = document.getElementById('throttleTrack'), thumb = document.getElementById('throttleThumb');");
+                  client.println("  var dragging = false, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
+                  client.println("  function valueFromPointer(e) {");
+                  client.println("    var frac = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));");
+                  client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
+                  client.println("  }");
+                  client.println("  function setThumb(val) {");
+                  client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
+                  client.println("    thumb.style.transform = 'translateY(' + (-(frac - 0.5) * rect.height) + 'px)';");
+                  client.println("  }");
+                  client.println("  function applyFrame() {");
+                  client.println("    rafScheduled = false;");
+                  client.println("    if (!dragging) return;");
+                  client.println("    setThumb(pendingVal);");
+                  client.println("    var now = Date.now();");
+                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }");
+                  client.println("  }");
+                  client.println("  function onMove(e) {");
+                  client.println("    if (!dragging) return;");
+                  client.println("    pendingVal = valueFromPointer(e);");
+                  client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
+                  client.println("    e.preventDefault();");
+                  client.println("  }");
+                  client.println("  function onStart(e) { dragging = true; lastSent = 0; rect = track.getBoundingClientRect(); track.setPointerCapture(e.pointerId); onMove(e); }");
+                  client.println("  function onEnd() { if (!dragging) return; dragging = false; pendingVal = center; setThumb(center); sendPos(ch, center); }");
+                  client.println("  track.addEventListener('pointerdown', onStart);");
+                  client.println("  track.addEventListener('pointermove', onMove);");
+                  client.println("  track.addEventListener('pointerup', onEnd);");
+                  client.println("  track.addEventListener('pointercancel', onEnd);");
+                  client.println("  setThumb(center);");
+                  client.println("}");
+                  client.println("setupThrottleTrack(" + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
                   client.println("</script>");
                   break;
                 }
