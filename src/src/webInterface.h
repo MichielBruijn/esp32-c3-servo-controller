@@ -480,7 +480,10 @@ void webInterface()
                   // gave a working vertical control on Android Firefox (the latter fell back to a
                   // horizontal drag range squeezed into a narrow box). Custom track+thumb it is, for
                   // this one control only - steer stays native since that already works fine.
-                  client.println("#throttleTrack{position:fixed;left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;background:#d3d3d3;border-radius:20px;touch-action:none;user-select:none;}");
+                  // No touch-action:none here - on Android Firefox that combined with a second,
+                  // separate touch starting on the native steer input left steer unresponsive,
+                  // order-dependently. Relying on preventDefault() in JS instead (see below).
+                  client.println("#throttleTrack{position:fixed;left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;background:#d3d3d3;border-radius:20px;user-select:none;}");
                   client.println("#throttleThumb{position:absolute;top:50%;left:50%;width:60px;height:60px;margin-top:-30px;margin-left:-30px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
                   client.println("</style>");
 
