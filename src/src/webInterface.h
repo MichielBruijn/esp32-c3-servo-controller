@@ -657,7 +657,15 @@ void webInterface()
                   client.println("<button class=\"button button3\" style=\"width:15%;padding:10px 0;margin:0;\" onclick=\"nudgeServo" + String(ch) + "(1)\">+</button>");
                   client.println("</p>");
 
-                  client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
+                  // currentServoNPos is the single source of truth for this channel's value on
+                  // this page - drag/center/nudge all update it together. nudge used to instead
+                  // re-read the slider's own DOM .value to add ±1 to, which could go wrong (seen
+                  // live: one press jumped ~300us instead of 1) - tracking our own last-known
+                  // value sidesteps whatever caused that entirely.
+                  client.println("<script> var currentServo" + String(ch) + "Pos = " + valueString + ";");
+                  client.println("function Servo" + String(ch) + "Speed(pos) { ");
+                  client.println("pos = parseInt(pos);");
+                  client.println("currentServo" + String(ch) + "Pos = pos;");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
                   client.println("sendPos(" + String(ch) + ", pos);");
                   client.println("}");
@@ -673,8 +681,8 @@ void webInterface()
                   // slider's own min/max.
                   client.println("function nudgeServo" + String(ch) + "(delta) {");
                   client.println("var s = document.getElementById(\"Servo" + String(ch) + "Slider\");");
-                  client.println("var v = parseInt(s.value) + delta;");
                   client.println("var lo = parseInt(s.min), hi = parseInt(s.max);");
+                  client.println("var v = currentServo" + String(ch) + "Pos + delta;");
                   client.println("if (v < lo) v = lo; if (v > hi) v = hi;");
                   client.println("s.value = v;");
                   client.println("Servo" + String(ch) + "Speed(v);");

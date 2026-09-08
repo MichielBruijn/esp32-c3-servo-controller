@@ -1208,7 +1208,7 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Settings_Menu;
-      SettingsItem = 7; // Pre select Servo frequency setting
+      SettingsItem = 0; // Always start at the first item
     }
     break;
 
