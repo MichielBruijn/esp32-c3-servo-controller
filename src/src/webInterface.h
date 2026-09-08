@@ -608,7 +608,7 @@ void webInterface()
                   client.println("} </script>");
                 }
 
-                client.println("<p><a href=\"/joystick/on\"><button class=\"button button3\">Joystick Mode (mobile)</button></a></p>");
+                client.println("<p><a href=\"/joystick/on\"><button class=\"button button3\">Joystick Mode</button></a></p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
@@ -841,7 +841,7 @@ void webInterface()
                 client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Manual Mode</button></a></p>");
                 client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Sweep Mode</button></a></p>");
                 client.println("<p><a href=\"/expert/on\"><button class=\"button button1\">Expert Functions</button></a></p>");
-                client.println("<p><a href=\"/joystick/on\"><button class=\"button button1\">Joystick Mode (mobile)</button></a></p>");
+                client.println("<p><a href=\"/joystick/on\"><button class=\"button button1\">Joystick Mode</button></a></p>");
                 client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Info</button></a></p>");
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Settings</button></a></p>");
                 break; // Not needed when statement(s) are present
