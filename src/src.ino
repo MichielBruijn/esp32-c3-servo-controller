@@ -33,13 +33,9 @@
 
  GPIO 2: Encoder click LED (mounted next to the power LED, flashes on every detent)
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
-
- GPIO 34: Joystick X axis (ADC1, input-only)
- GPIO 35: Joystick Y axis (ADC1, input-only)
- GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.48"; // Software revision.
+char codeVersion[] = "0.50"; // Software revision.
 
 //
 // =======================================================================================================
@@ -172,11 +168,11 @@ int WIFI_MODE;           // 0 = Access Point, 1 = Station, see WifiModeEnum abov
 String STA_SSID = "";     // Home WiFi network SSID to join in Station mode, entered via the web interface
 String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode, entered via the web interface
 bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
-int JOYSTICK_X_CHANNEL;  // Which servo channel (0-4) the joystick's X axis drives
-int JOYSTICK_Y_CHANNEL;  // Which servo channel (0-4) the joystick's Y axis drives
-// Learned raw ADC extremes per axis (see the self-widening calibration in Joystick_Menu), exposed
-// globally too so the web interface's Joystick page can show them for diagnosis. Initialized in setup().
-int joystickXRawMin, joystickXRawMax, joystickYRawMin, joystickYRawMax;
+// Which servo channel (0-4) each Arcade Mode control drives (web interface) - used to be the
+// physical analog joystick's X/Y channel mapping too, before that hardware was removed in favor
+// of the web-only Arcade Mode control.
+int JOYSTICK_X_CHANNEL;
+int JOYSTICK_Y_CHANNEL;
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
@@ -216,14 +212,6 @@ ESP32Encoder encoder;
 #define BUTTON_PIN 15         // Hardware Pin Button
 #define BOOT_BUTTON_PIN 0     // Onboard BOOT button, repurposed at runtime as a channel++ shortcut
 
-// Optional analog joystick - X/Y axes each drive a configurable servo channel directly (position
-// control, like an RC stick), click button re-centers both mapped channels.
-#define JOYSTICK_X_PIN 34        // ADC1 channel, input-only
-#define JOYSTICK_Y_PIN 35        // ADC1 channel, input-only
-#define JOYSTICK_BUTTON_PIN 26
-#define JOYSTICK_ADC_MAX 4095    // 12-bit ADC
-#define JOYSTICK_ADC_CENTER 2048
-#define JOYSTICK_DEADZONE 150    // +/- around center that snaps to the channel's calibrated Center, absorbs mechanical/ADC noise at rest
 #define ENCODER_PIN_1 16      // Hardware Pin1 Encoder
 #define ENCODER_PIN_2 17      // Hardware Pin2 Encoder
 long prev1 = 0;               // Zeitspeicher für Taster
@@ -267,7 +255,6 @@ enum
 #define BUZZER_LEDC_CHANNEL 4  // LEDC channel 2 is already used by the signal generator on GPIO 26
 #define BUZZER_TONE_HZ 2700    // Audible tone frequency for the passive buzzer
 int beepDuration;    // how long the beep will be
-bool pewPewTrigger;  // Set true to start the joystick button's "pew pew" laser sound
 
 // Encoder click LED, next to the power LED
 #define ENCODER_LED_PIN 2 // Flashes on every encoder detent
@@ -275,7 +262,9 @@ bool pewPewTrigger;  // Set true to start the joystick button's "pew pew" laser 
 int encoderLedDuration; // ms remaining for the current flash, 0 = off
 
 // Oscilloscope + Signal Generator pins - restored from an earlier version of this fork, moved off
-// their original pins (GPIO32, GPIO26) since those are now Servo5/SBUS and the joystick button
+// their original pins (GPIO32, GPIO26) since those were taken by Servo5/SBUS and (at the time) the
+// physical joystick button - GPIO26 is free again now that the joystick has been removed, but these
+// stay on their current pins since hardware may already be wired for them.
 #define OSCILLOSCOPE_PIN 39     // ADC1 pin only, input-only! Don't change without also updating oscilloscope.h's hardcoded ADC1_CHANNEL_3
 #define SIGNAL_GENERATOR_PIN 25 // The other DAC-capable pin (DAC_CHANNEL_1)
 
@@ -306,10 +295,9 @@ float batteryChargePercentage; // Akkuspannung in Prozent
  * 5 = ReadSbus_Select        Selection -> 55 ReadSbus_Menu
  * 6 = ReadIbus_Select        Selection -> 56 ReadIbus_Menu
  * 7 = Info_Select              Selection -> 57 Info_Menu (3 pages, left/right to page through: Controls, Wifi, Firmware)
- * 8 = Joystick_Select          Selection -> 60 Joystick_Menu
- * 9 = Oscilloscope_Select      Selection -> 61 Oscilloscope_Menu
- * 10 = SignalGenerator_Select  Selection -> 62 SignalGenerator_Menu
- * 11 = Settings_Select      Selection -> 58 Settings_Menu (last item)
+ * 8 = Oscilloscope_Select      Selection -> 61 Oscilloscope_Menu
+ * 9 = SignalGenerator_Select   Selection -> 62 SignalGenerator_Menu
+ * 10 = Settings_Select         Selection -> 58 Settings_Menu (last item)
  * etc.
  */
 enum
@@ -321,10 +309,9 @@ enum
   ReadSbus_Select = 5,
   ReadIbus_Select = 6,
   Info_Select = 7,
-  Joystick_Select = 8,
-  Oscilloscope_Select = 9,
-  SignalGenerator_Select = 10,
-  Settings_Select = 11,
+  Oscilloscope_Select = 8,
+  SignalGenerator_Select = 9,
+  Settings_Select = 10,
   //
   Servotester_Menu = 51,
   AutoMode_Menu = 52,
@@ -334,7 +321,6 @@ enum
   ReadIbus_Menu = 56,
   Info_Menu = 57,
   Settings_Menu = 58,
-  Joystick_Menu = 60,
   Oscilloscope_Menu = 61,
   SignalGenerator_Menu = 62
 };
@@ -463,38 +449,6 @@ void beep()
     ledcWrite(BUZZER_LEDC_CHANNEL, 0); // Silence
     buzzerOn = false;
     beepDuration = 0;
-  }
-}
-
-// "Pew pew" laser sound for the joystick click button --------------------------------------------
-// Non-blocking descending frequency sweep on the same buzzer channel as beep(), so it never runs
-// at the same time as a plain beep (pewPewTrigger and beepDuration are never both set together).
-void pewPew()
-{
-  static unsigned long pewPewStartMillis;
-  static bool pewPewActive;
-  const unsigned long pewPewDuration = 150; // ms, total sweep length
-
-  if (pewPewTrigger)
-  {
-    pewPewTrigger = false;
-    pewPewActive = true;
-    pewPewStartMillis = millis();
-  }
-
-  if (pewPewActive)
-  {
-    unsigned long elapsed = millis() - pewPewStartMillis;
-    if (elapsed >= pewPewDuration)
-    {
-      ledcWriteTone(BUZZER_LEDC_CHANNEL, 0); // Silence
-      pewPewActive = false;
-    }
-    else
-    {
-      int freq = map(elapsed, 0, pewPewDuration, 3000, 400); // High pitch down to low = laser zap
-      ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
-    }
   }
 }
 
@@ -865,11 +819,6 @@ void setup()
   encoder.setFilter(1023);
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP); // BOOT button, only read after boot completes - GPIO0's strapping role is over by then
-  pinMode(JOYSTICK_BUTTON_PIN, INPUT_PULLUP); // Read globally now (channel-change works from any menu), not just while inside Joystick_Menu
-  joystickXRawMin = joystickXRawMax = joystickYRawMin = joystickYRawMax = JOYSTICK_ADC_CENTER;
-  // 11dB is already this core's default (full 0-3.3V ADC range), set explicitly for certainty
-  analogSetPinAttenuation(JOYSTICK_X_PIN, ADC_11db);
-  analogSetPinAttenuation(JOYSTICK_Y_PIN, ADC_11db);
 
   // Speaker setup (passive buzzer, needs a PWM tone rather than a flat digitalWrite)
   ledcSetup(BUZZER_LEDC_CHANNEL, BUZZER_TONE_HZ, 8);
@@ -1105,25 +1054,6 @@ void ButtonRead()
     beepDuration = 10; // Same short beep as a normal button click
   }
   lastBootButtonState = bootButtonState;
-
-  // Joystick click button -------------------------------------------------------------------------
-  // Always changes channel too (same as the BOOT button), from any menu - including Joystick_Menu,
-  // where it does NOT affect the joystick's own X/Y channel mapping, only which channel is
-  // "selected" for when you leave the Joystick menu. Uses the "pew pew" sound instead of a plain
-  // beep so it stays a distinct, fun button in live mode.
-  static bool lastJoystickButtonState = HIGH;
-  static unsigned long joystickButtonMillis;
-  bool joystickButtonState = digitalRead(JOYSTICK_BUTTON_PIN);
-  if (joystickButtonState == LOW && lastJoystickButtonState == HIGH && millis() - joystickButtonMillis > bouncing)
-  {
-    joystickButtonMillis = millis();
-    selectedServo++;
-    if (selectedServo > NUM_SERVO_CHANNELS - 1)
-      selectedServo = 0;
-    encoderLedDuration = ENCODER_LED_FLASH_MS;
-    pewPewTrigger = true;
-  }
-  lastJoystickButtonState = joystickButtonState;
 }
 
 //
@@ -1343,32 +1273,6 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Info_Menu;
-    }
-    break;
-
-  // Joystick Selection *********************************************************
-  case Joystick_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Joystick");
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Joystick_Menu;
     }
     break;
 
@@ -1982,96 +1886,6 @@ void MenuUpdate()
     }
     break;
 
-  // Joystick *********************************************************
-  case Joystick_Menu:
-  {
-    // Self-widening calibration: a joystick pot rarely actually swings its output all the way from
-    // 0 to JOYSTICK_ADC_MAX (mechanical end-stop before the electrical rail, plus the ESP32 ADC's
-    // own non-linearity near 0V/3.3V), so mapping against the theoretical full range under-uses the
-    // stick's real travel and makes the usable middle feel oversensitive. joystickXRawMin/Max/etc.
-    // (global, initialized in setup()) remember the widest raw values actually seen on each side of
-    // center and use that instead - accurate after the first full deflection each way. Global so the
-    // web interface's Joystick page can show them too, for diagnosis.
-    static unsigned long joystickMenuMillis;
-    if (millis() - joystickMenuMillis > 50) // Same refresh rate as Servotester_Menu
-    {
-      joystickMenuMillis = millis();
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(64, 0, "Joystick");
-      display.drawString(64, 12, "X->CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + "us");
-      display.drawString(64, 22, "Y->CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + "us");
-      display.drawString(64, 36, "Xraw " + String(joystickXRawMin) + "-" + String(joystickXRawMax));
-      display.drawString(64, 48, "Yraw " + String(joystickYRawMin) + "-" + String(joystickYRawMax));
-      display.display();
-    }
-
-    if (!SetupMenu)
-    {
-      setupMcpwm();
-      pinMode(JOYSTICK_BUTTON_PIN, INPUT_PULLUP);
-      SetupMenu = true;
-    }
-
-    // Mode is per timer group now, so the X and Y channels may each be in a different mode family
-    int xMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
-    int yMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
-    int xMin = SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][xMode];
-    int xMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][xMode];
-    int yMin = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][yMode];
-    int yMax = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode];
-
-    // ESP32's ADC has a well-known channel "memory effect": switching to a new ADC1 channel right
-    // after reading a different one can carry over some residual charge from the previous channel's
-    // sample-and-hold capacitor, biasing the new reading toward it - worse with a high-impedance
-    // source like a joystick's potentiometer. Reading each channel twice and keeping only the second
-    // (settled) sample avoids this; this is what made moving one axis appear to nudge the other.
-    analogRead(JOYSTICK_X_PIN); // Throwaway, lets the S&H capacitor settle after the previous Y read
-    int rawX = analogRead(JOYSTICK_X_PIN);
-    analogRead(JOYSTICK_Y_PIN); // Throwaway, lets the S&H capacitor settle after the X read above
-    int rawY = analogRead(JOYSTICK_Y_PIN);
-
-    joystickXRawMin = min(joystickXRawMin, rawX);
-    joystickXRawMax = max(joystickXRawMax, rawX);
-    joystickYRawMin = min(joystickYRawMin, rawY);
-    joystickYRawMax = max(joystickYRawMax, rawY);
-
-    int xCenterServo = servoCenterForChannel(JOYSTICK_X_CHANNEL);
-    int yCenterServo = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
-
-    // Deadzone snaps to the calibrated Center, so mechanical/ADC noise at rest doesn't twitch the servo
-    if (abs(rawX - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
-      servo_pos[JOYSTICK_X_CHANNEL] = xCenterServo;
-    else if (rawX < JOYSTICK_ADC_CENTER)
-      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, joystickXRawMin, JOYSTICK_ADC_CENTER, xMin, xCenterServo);
-    else
-      servo_pos[JOYSTICK_X_CHANNEL] = map(rawX, JOYSTICK_ADC_CENTER, joystickXRawMax, xCenterServo, xMax);
-
-    if (abs(rawY - JOYSTICK_ADC_CENTER) < JOYSTICK_DEADZONE)
-      servo_pos[JOYSTICK_Y_CHANNEL] = yCenterServo;
-    else if (rawY < JOYSTICK_ADC_CENTER)
-      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, joystickYRawMin, JOYSTICK_ADC_CENTER, yMin, yCenterServo);
-    else
-      servo_pos[JOYSTICK_Y_CHANNEL] = map(rawY, JOYSTICK_ADC_CENTER, joystickYRawMax, yCenterServo, yMax);
-
-    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
-    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
-    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, servo_pos[2]);
-    mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_B, servo_pos[3]);
-    mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[4]);
-
-    // Joystick click button is now handled globally in ButtonRead() (always changes channel,
-    // same as the BOOT button) - no menu-specific handling here anymore.
-
-    if (buttonState == 1)
-    {
-      Menu = Joystick_Select;
-      SetupMenu = false;
-    }
-    break;
-  }
-
     // Oscilloscope *********************************************************
   case Oscilloscope_Menu:
 
@@ -2241,11 +2055,11 @@ void MenuUpdate()
       }
       break;
     case 13:
-      display.drawString(64, 25, "Joystick X");
+      display.drawString(64, 25, "Arcade Steer");
       display.drawString(64, 45, "CH" + String(JOYSTICK_X_CHANNEL + 1));
       break;
     case 14:
-      display.drawString(64, 25, "Joystick Y");
+      display.drawString(64, 25, "Arcade Throttle");
       display.drawString(64, 45, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
       break;
     }
@@ -2858,7 +2672,6 @@ void loop()
 
   ButtonRead();
   beep();
-  pewPew();
   flashEncoderLed();
   MenuUpdate();
   webInterface();

@@ -325,10 +325,6 @@ void webInterface()
               {
                 Menu = ReadIbus_Menu;
               }
-              if (header.indexOf("GET /70/on") >= 0)
-              {
-                Menu = Joystick_Menu;
-              }
               if (header.indexOf("GET /80/on") >= 0)
               {
                 Menu = Info_Menu;
@@ -477,21 +473,22 @@ void webInterface()
                   client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
                   client.println(".arcadeLabel{position:fixed;font-size:15px;font-weight:bold;color:#555;}");
                   client.println("#labelLeft{left:5vw;top:50%;transform:translateY(-50%);} #labelRight{left:44vw;top:50%;transform:translateY(-50%);}");
-                  client.println("#labelReverse{left:56vw;top:50%;transform:translateY(-50%);} #labelForward{left:95vw;top:50%;transform:translate(-100%,-50%);}");
+                  client.println("#labelForward{left:82vw;top:calc(50% - 25vh - 24px);transform:translateX(-50%);} #labelReverse{left:82vw;top:calc(50% + 25vh + 8px);transform:translateX(-50%);}");
                   client.println("input[type=range].arcade{-webkit-appearance:none;appearance:none;background:#d3d3d3;border-radius:20px;outline:none;touch-action:none;}");
                   client.println("input[type=range].arcade::-webkit-slider-thumb{-webkit-appearance:none;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("input[type=range].arcade::-moz-range-thumb{width:60px;height:60px;border-radius:50%;background:#4CAF50;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
                   client.println("input[type=range].arcade::-moz-range-track{background:#d3d3d3;border-radius:20px;}");
-                  // Both horizontal now, no vertical/rotated slider - rotating a native range input's
-                  // visual appearance doesn't rotate where the browser actually computes touch/drag
-                  // hit-testing, which is why the "vertical" one was completely unresponsive.
                   client.println("#steerRange{position:fixed;left:5vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
-                  client.println("#throttleRange{position:fixed;left:56vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
+                  // -moz-orient:vertical is Firefox's own genuinely-vertical mode for range inputs -
+                  // not a CSS rotation of a horizontal one. Rotating a native range input's visual
+                  // appearance via transform does NOT rotate where the browser computes touch/drag
+                  // hit-testing, which is exactly why that approach was completely unresponsive.
+                  client.println("#throttleRange{position:fixed;-moz-orient:vertical;width:70px;height:50vh;left:82vw;top:50%;transform:translate(-50%,-50%);}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
                   client.println("<span class=\"arcadeLabel\" id=\"labelLeft\">Left</span><span class=\"arcadeLabel\" id=\"labelRight\">Right</span>");
-                  client.println("<span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span><span class=\"arcadeLabel\" id=\"labelForward\">Forward</span>");
+                  client.println("<span class=\"arcadeLabel\" id=\"labelForward\">Forward</span><span class=\"arcadeLabel\" id=\"labelReverse\">Reverse</span>");
                   client.println("<input type=\"range\" class=\"arcade\" id=\"steerRange\">");
                   client.println("<input type=\"range\" class=\"arcade\" id=\"throttleRange\">");
 
@@ -586,31 +583,6 @@ void webInterface()
 
                 client.println("<h3>Firmware</h3>");
                 client.println("<p>v" + String(codeVersion) + "</p>");
-
-                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
-                break;
-
-              case Joystick_Menu:
-                client.println("<h2>Joystick</h2>");
-                client.println("<p>Physical analog stick on the device itself - this page just shows what it's currently doing.</p>");
-                client.println("<p><h3>X -> CH" + String(JOYSTICK_X_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_X_CHANNEL]) + " &micro;s</h3></p>");
-                client.println("<p><h3>Y -> CH" + String(JOYSTICK_Y_CHANNEL + 1) + ": " + String(servo_pos[JOYSTICK_Y_CHANNEL]) + " &micro;s</h3></p>");
-                client.println("<p>Click the stick to re-center both. Change which channel is X/Y in <a href=\"/120/on\">Settings</a>.</p>");
-
-                // Diagnostics: calibrated range being mapped to, vs. the raw ADC extremes the
-                // joystick has actually produced so far this session (widens as you move the stick
-                // to each extreme - if it never gets close to 0/4095, that's the pot's real limit).
-                {
-                  int diagXMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
-                  int diagYMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
-                  int diagXMin = SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][diagXMode];
-                  int diagXMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][diagXMode];
-                  int diagYMin = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][diagYMode];
-                  int diagYMax = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][diagYMode];
-                  client.println("<p>Calibrated CH" + String(JOYSTICK_X_CHANNEL + 1) + " range: " + String(diagXMin) + "-" + String(diagXMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_X_CHANNEL)) + ")</p>");
-                  client.println("<p>Calibrated CH" + String(JOYSTICK_Y_CHANNEL + 1) + " range: " + String(diagYMin) + "-" + String(diagYMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_Y_CHANNEL)) + ")</p>");
-                  client.println("<p>Learned raw ADC range - X: " + String(joystickXRawMin) + "-" + String(joystickXRawMax) + " / Y: " + String(joystickYRawMin) + "-" + String(joystickYRawMax) + " (0-4095 max, 2048 = center)</p>");
-                }
 
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
@@ -744,8 +716,8 @@ void webInterface()
                 client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
                 client.println("} </script>");
 
-                // Joystick channel mapping (optional analog joystick, see the wiring notes) -----
-                client.println("<p><h3>Joystick X -> Channel</h3>");
+                // Arcade Mode channel mapping (which channel each control drives) -----
+                client.println("<p><h3>Arcade Steer -> Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
@@ -753,7 +725,7 @@ void webInterface()
                 }
                 client.println("</p>");
 
-                client.println("<p><h3>Joystick Y -> Channel</h3>");
+                client.println("<p><h3>Arcade Throttle -> Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
@@ -775,7 +747,6 @@ void webInterface()
                 client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Read PPM Multiswitch</button></a></p>");
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
-                client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Joystick</button></a></p>");
                 client.println("<p><a href=\"/arcade/on\"><button class=\"button button1\">Arcade Mode (mobile)</button></a></p>");
                 client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Info</button></a></p>");
                 client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Oscilloscope</button></a></p>");
