@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.59"; // Software revision.
+char codeVersion[] = "0.60"; // Software revision.
 
 //
 // =======================================================================================================
@@ -863,10 +863,11 @@ void setup()
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
   display.drawString(0, 0, operationString[LANGUAGE]);
-  display.drawString(0, 12, shortPressString[LANGUAGE]);
-  display.drawString(0, 24, longPressString[LANGUAGE]);
-  display.drawString(0, 36, doubleclickString[LANGUAGE]);
-  display.drawString(0, 48, RotateKnobString[LANGUAGE]);
+  display.drawString(0, 10, shortPressString[LANGUAGE]);
+  display.drawString(0, 20, longPressString[LANGUAGE]);
+  display.drawString(0, 30, doubleclickString[LANGUAGE]);
+  display.drawString(0, 40, RotateKnobString[LANGUAGE]);
+  display.drawString(0, 50, bootButtonString[LANGUAGE]);
   display.display();
 
   unsigned long helpScreenStart = millis();
@@ -1854,10 +1855,11 @@ void MenuUpdate()
     case 1: // Controls - same content as the boot help screen
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.drawString(0, 0, operationString[LANGUAGE]);
-      display.drawString(0, 12, shortPressString[LANGUAGE]);
-      display.drawString(0, 24, longPressString[LANGUAGE]);
-      display.drawString(0, 36, doubleclickString[LANGUAGE]);
-      display.drawString(0, 48, RotateKnobString[LANGUAGE]);
+      display.drawString(0, 10, shortPressString[LANGUAGE]);
+      display.drawString(0, 20, longPressString[LANGUAGE]);
+      display.drawString(0, 30, doubleclickString[LANGUAGE]);
+      display.drawString(0, 40, RotateKnobString[LANGUAGE]);
+      display.drawString(0, 50, bootButtonString[LANGUAGE]);
       break;
     case 2: // Firmware
       display.drawString(64, 0, "Firmware source:");

@@ -614,7 +614,7 @@ void webInterface()
                 }
 
                 client.println("<h3>Controls (physical device)</h3>");
-                client.println("<p>Turn: move through list / adjust value<br>Short press: select<br>Long press: back<br>Double-click: next channel</p>");
+                client.println("<p>Turn: move through list / adjust value<br>Short press: select<br>Long press: back<br>Double-click: next channel<br>BOOT button: next channel</p>");
 
                 client.println("<h3>Firmware</h3>");
                 client.println("<p>v" + String(codeVersion) + "</p>");

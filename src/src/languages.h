@@ -58,6 +58,7 @@ String shortPressString[] {"Short Press = Select", "Kurz Drücken = Auswahl", "A
 String longPressString[] {"Long Press = Back", "Lang Drücken = Zurück", "Appui long   = Retour"};
 String doubleclickString[] {"Doubleclick = CH Change", "Doppelklick = CH Wechsel", "Double-clique = CH Changem."};
 String RotateKnobString[] {"Rotate = Scroll / Adjust", "Drehen = Blättern / Einstell.", "Tourner     = Défiler"};
+String bootButtonString[] {"BOOT btn = CH Change", "BOOT Taste = CH Wechsel", "Bouton BOOT = CH Changem."};
 
 // EEPROM
 String eepromReadString[] {"EEPROM read.", "EEPROM gelesen.", "EEPROM lire."};
