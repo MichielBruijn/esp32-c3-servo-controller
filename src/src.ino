@@ -1047,6 +1047,28 @@ void ButtonRead()
   lastBootButtonState = bootButtonState;
 }
 
+// Which visual group a Settings item (0-14, see the enum comment above) belongs to - shown in
+// place of a generic "Settings" in the header, since the OLED only ever shows one item at a
+// time (no room for a divider line between adjacent items like a scrollable list would have).
+String settingsGroupName(int item)
+{
+  if (item <= 5)
+    return "Servo"; // Channel, Min, Center, Max, Angle, Mode
+  if (item == 6)
+    return "SBUS";
+  if (item == 7)
+    return "Power Scale";
+  if (item == 8)
+    return "Encoder";
+  if (item == 9)
+    return "Speed";
+  if (item <= 11)
+    return "Joystick"; // Steer, Throttle
+  if (item <= 13)
+    return "WiFi"; // On/Off, Mode
+  return "Factory Reset";
+}
+
 //
 // =======================================================================================================
 // MENU
@@ -1922,7 +1944,10 @@ void MenuUpdate()
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 0, SettingsItem == 0 ? "  Settings >" : (SettingsItem == 14 ? "< Settings  " : "< Settings >"));
+    {
+      String groupName = settingsGroupName(SettingsItem);
+      display.drawString(64, 0, SettingsItem == 0 ? ("  " + groupName + " >") : (SettingsItem == 14 ? ("< " + groupName + "  ") : ("< " + groupName + " >")));
+    }
     switch (SettingsItem)
     {
     case 0:

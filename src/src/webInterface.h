@@ -496,6 +496,7 @@ void webInterface()
               client.println(".buttonActive {background-color: #2196F3;}");
               client.println(".textbox {font-size: 25px; text-align: center; background: var(--card); color: var(--fg); border: 1px solid #888;}");
               client.println("h1,h2,h3 { color: var(--fg); }");
+              client.println(".groupLabel { text-transform: uppercase; font-size: 12px; opacity: 0.6; letter-spacing: 1px; margin: 28px 0 2px; }");
               client.println("</style>");
 
               // Throttled sender for slider/textbox updates: at most one request in flight per
@@ -803,6 +804,7 @@ void webInterface()
               {
                 client.println("<h2>Settings</h2>");
 
+                client.println("<p class=\"groupLabel\">Servo</p>");
                 // Channel selector -----------------------------------------
                 client.println("<p><h3>Servo Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
@@ -861,11 +863,13 @@ void webInterface()
                 }
                 client.println("</p>");
 
+                client.println("<p class=\"groupLabel\">SBUS</p>");
                 // SBUS inverted --------------------------------------------
                 client.println("<p><h3>SBUS: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
                 client.println("<a href=\"/?Sbus=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 1 ? "buttonActive" : "button3") + "\">Standard</button></a>");
                 client.println("<a href=\"/?Sbus=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 0 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
 
+                client.println("<p class=\"groupLabel\">Power Scale</p>");
                 // Power scale --------------------------------------------
                 valueString = String(POWER_SCALE, DEC);
                 client.println("<p><h3>Power Scale: <span id=\"textPowerValue\">" + valueString + "</span> (Battery: " + String(batteryVoltage, 2) + "V)</h3>");
@@ -875,11 +879,13 @@ void webInterface()
                 client.println("sendThrottled('Power', \"/?Power=\" + pos + \"&\");");
                 client.println("} </script>");
 
+                client.println("<p class=\"groupLabel\">Encoder</p>");
                 // Encoder direction --------------------------------------------
                 client.println("<p><h3>Encoder Direction: " + String(ENCODER_INVERTED == 0 ? "Standard" : "Inversed") + "</h3>");
                 client.println("<a href=\"/?Enc=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(ENCODER_INVERTED == 0 ? "buttonActive" : "button3") + "\">Standard</button></a>");
                 client.println("<a href=\"/?Enc=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(ENCODER_INVERTED == 1 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
 
+                client.println("<p class=\"groupLabel\">Speed</p>");
                 // Speed curve --------------------------------------------
                 valueString = String(SPEED_CURVE / 10.0, 1);
                 client.println("<p><h3>Speed Curve: <span id=\"textSpeedCurveValue\">" + valueString + "</span>");
@@ -889,6 +895,7 @@ void webInterface()
                 client.println("sendThrottled('SpeedCurve', \"/?SpeedCurve=\" + pos + \"&\");");
                 client.println("} </script>");
 
+                client.println("<p class=\"groupLabel\">Joystick</p>");
                 // Joystick Mode channel mapping (which channel each control drives) -----
                 client.println("<p><h3>Joystick Steer -> Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
@@ -906,6 +913,7 @@ void webInterface()
                 }
                 client.println("</p>");
 
+                client.println("<p class=\"groupLabel\">WiFi</p>");
                 // WiFi on/off --------------------------------------------
                 client.println("<p><h3>WiFi: " + String(WIFI_ON == 1 ? "On" : "Off") + "</h3>");
                 client.println("<a href=\"/?WifiOn=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(WIFI_ON == 1 ? "buttonActive" : "button3") + "\">On</button></a>");
