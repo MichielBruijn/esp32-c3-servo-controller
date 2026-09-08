@@ -483,13 +483,30 @@ void webInterface()
                   client.println("#throttleTrack{left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;}");
                   client.println("</style>");
 
-                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
+                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a><span id=\"diag\" style=\"font-family:monospace;font-size:12px;\"></span></div>");
                   client.println("<div class=\"arcadeTrack\" id=\"steerTrack\"><div class=\"arcadeThumb\" id=\"steerThumb\"></div></div>");
                   client.println("<div class=\"arcadeTrack\" id=\"throttleTrack\"><div class=\"arcadeThumb\" id=\"throttleThumb\"></div></div>");
 
+                  // TEMPORARY diagnostics: shows page FPS and pointermove events/sec per track, so
+                  // the jerkiness with 2 fingers can be tied to actual numbers instead of guessing.
                   client.println("<script>");
+                  client.println("var diagCounts = {}, diagEl = document.getElementById('diag'), diagFrames = 0, diagLastT = performance.now();");
+                  client.println("function diagLoop(t) {");
+                  client.println("  diagFrames++;");
+                  client.println("  if (t - diagLastT > 500) {");
+                  client.println("    var fps = Math.round(diagFrames / ((t - diagLastT) / 1000));");
+                  client.println("    var parts = ['FPS ' + fps];");
+                  client.println("    for (var k in diagCounts) { parts.push(k + ' ' + Math.round(diagCounts[k] / ((t - diagLastT) / 1000)) + '/s'); diagCounts[k] = 0; }");
+                  client.println("    diagEl.textContent = parts.join(' | ');");
+                  client.println("    diagFrames = 0; diagLastT = t;");
+                  client.println("  }");
+                  client.println("  requestAnimationFrame(diagLoop);");
+                  client.println("}");
+                  client.println("requestAnimationFrame(diagLoop);");
+
                   client.println("function setupArcadeTrack(trackId, thumbId, horizontal, ch, min, center, max) {");
                   client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId);");
+                  client.println("  diagCounts[trackId] = 0;");
                   client.println("  var dragging = false, activePointerId = null, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
                   client.println("  function valueFromPointer(e) {");
                   client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
@@ -512,6 +529,7 @@ void webInterface()
                   // tried and ruled out as the cause of the order-dependent bug described above.
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
+                  client.println("    diagCounts[trackId]++;");
                   client.println("    pendingVal = valueFromPointer(e);");
                   client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
                   client.println("    e.preventDefault();");
