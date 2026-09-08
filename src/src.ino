@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.26"; // Software revision.
+char codeVersion[] = "0.28"; // Software revision.
 
 //
 // =======================================================================================================
@@ -598,6 +598,9 @@ void wifiSetup()
       Serial.print("Connecting to WiFi network: ");
       Serial.println(STA_SSID);
 
+      // Must be set before WiFi.mode(), which applies the hostname to the network interface
+      // at that point in time - setting it after mode() is a no-op for the netif already created.
+      WiFi.setHostname("servotester"); // else the DHCP hostname defaults to "esp32-<MAC suffix>"
       WiFi.mode(WIFI_STA);
       setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
 
