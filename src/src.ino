@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.64"; // Software revision.
+char codeVersion[] = "0.65"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1853,7 +1853,17 @@ void MenuUpdate()
 
     if (buttonState == 2 && InfoPage == 2 && updateAvailable)
     {
-      installFirmwareUpdate(); // Blocks, then restarts the device on success
+      if (!installFirmwareUpdate()) // Blocks; restarts the device on success, returns on failure
+      {
+        display.clear();
+        display.setTextAlignment(TEXT_ALIGN_CENTER);
+        display.setFont(ArialMT_Plain_16);
+        display.drawString(64, 10, "Update failed");
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(64, 38, updateErrorMessage);
+        display.display();
+        delay(3000);
+      }
     }
     break;
 

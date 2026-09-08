@@ -105,32 +105,75 @@ bool installFirmwareUpdate()
   display.drawString(64, 45, "Do not power off");
   display.display();
 
+  // GitHub release assets redirect (302) to a signed objects.githubusercontent.com URL - a
+  // different host. HTTPClient's own setFollowRedirects() reuses the same underlying
+  // connection across that redirect if the old one is still open, which sends the follow-up
+  // request to the wrong host and hangs waiting for a response that never comes. So the
+  // redirect is resolved manually here instead, with a fresh WiFiClientSecure + HTTPClient
+  // per hop, and explicit timeouts so a stalled connection can't hang the device indefinitely.
+  String url = latestFirmwareUrl;
+  const char *locationHeader[] = {"Location"};
+  int contentLength = 0;
+  WiFiClient *stream = nullptr;
   WiFiClientSecure client;
-  client.setInsecure();
   HTTPClient https;
-  https.setUserAgent("esp32-servo-tester");
-  https.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS); // GitHub release assets redirect to a signed download URL
 
-  if (!https.begin(client, latestFirmwareUrl))
+  for (int hop = 0; hop < 5; hop++)
   {
-    updateErrorMessage = "Could not connect";
-    updateInProgress = false;
-    return false;
+    client.stop();
+    client.setInsecure();
+    client.setTimeout(15000);
+    https.setUserAgent("esp32-servo-tester");
+    https.setConnectTimeout(15000);
+    https.setTimeout(15000);
+    https.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+    https.collectHeaders(locationHeader, 1);
+
+    if (!https.begin(client, url))
+    {
+      updateErrorMessage = "Could not connect";
+      Serial.println("Firmware update: " + updateErrorMessage);
+      updateInProgress = false;
+      return false;
+    }
+
+    int httpCode = https.GET();
+
+    if (httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND ||
+        httpCode == HTTP_CODE_SEE_OTHER || httpCode == HTTP_CODE_TEMPORARY_REDIRECT ||
+        httpCode == 308 /* Permanent Redirect */)
+    {
+      String location = https.header("Location");
+      https.end();
+      if (location.length() == 0)
+      {
+        updateErrorMessage = "Redirect with no Location header";
+        Serial.println("Firmware update: " + updateErrorMessage);
+        updateInProgress = false;
+        return false;
+      }
+      url = location;
+      continue; // Next hop opens a fresh connection to whatever host `location` points at
+    }
+
+    if (httpCode != HTTP_CODE_OK)
+    {
+      updateErrorMessage = "Download failed (HTTP " + String(httpCode) + ")";
+      Serial.println("Firmware update: " + updateErrorMessage);
+      https.end();
+      updateInProgress = false;
+      return false;
+    }
+
+    contentLength = https.getSize();
+    stream = https.getStreamPtr();
+    break; // Got the actual file - fall through to writing it below, https/client stay open
   }
 
-  int httpCode = https.GET();
-  if (httpCode != HTTP_CODE_OK)
+  if (!stream || contentLength <= 0)
   {
-    updateErrorMessage = "Download failed (HTTP " + String(httpCode) + ")";
-    https.end();
-    updateInProgress = false;
-    return false;
-  }
-
-  int contentLength = https.getSize();
-  if (contentLength <= 0)
-  {
-    updateErrorMessage = "Unknown download size";
+    updateErrorMessage = stream ? "Unknown download size" : "Too many redirects";
+    Serial.println("Firmware update: " + updateErrorMessage);
     https.end();
     updateInProgress = false;
     return false;
@@ -139,18 +182,19 @@ bool installFirmwareUpdate()
   if (!Update.begin(contentLength))
   {
     updateErrorMessage = "Not enough OTA space";
+    Serial.println("Firmware update: " + updateErrorMessage);
     https.end();
     updateInProgress = false;
     return false;
   }
 
-  WiFiClient *stream = https.getStreamPtr();
   size_t written = Update.writeStream(*stream);
   https.end();
 
   if (written != (size_t)contentLength || !Update.end() || !Update.isFinished())
   {
     updateErrorMessage = "Write failed, firmware unchanged";
+    Serial.println("Firmware update: " + updateErrorMessage);
     Update.abort();
     updateInProgress = false;
     return false;
