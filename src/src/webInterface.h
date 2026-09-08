@@ -666,7 +666,6 @@ void webInterface()
                   client.println("} </script>");
                 }
 
-                client.println("<p><a href=\"/joystick/on\"><button class=\"button button3\">Joystick Mode</button></a></p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 

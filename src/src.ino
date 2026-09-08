@@ -870,28 +870,6 @@ void setup()
   display.display();
   delay(1250);
 
-  // Show manual
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
-  display.drawString(0, 0, operationString[LANGUAGE]);
-  display.drawString(0, 10, shortPressString[LANGUAGE]);
-  display.drawString(0, 20, longPressString[LANGUAGE]);
-  display.drawString(0, 30, doubleclickString[LANGUAGE]);
-  display.drawString(0, 40, RotateKnobString[LANGUAGE]);
-  display.drawString(0, 50, bootButtonString[LANGUAGE]);
-  display.display();
-
-  unsigned long helpScreenStart = millis();
-  while (digitalRead(BUTTON_PIN) && millis() - helpScreenStart < 10000)
-  {
-    // Wait for a button press or a 10s timeout, whichever comes first
-  }
-  while (!digitalRead(BUTTON_PIN))
-  {
-    // Wait for button release, so the press doesn't leak into the main menu
-  }
-
   if (attemptingStationBoot)
   {
     // Only waits out whatever's left of the 10s budget - most of it was likely already spent
