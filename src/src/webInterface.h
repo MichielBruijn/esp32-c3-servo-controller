@@ -817,14 +817,6 @@ void webInterface()
                 int chMin = SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE];
                 int chCenter = SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE];
 
-                valueString = String(chMax, DEC);
-                client.println("<p><h3>Servo Max (&micro;s): <span id=\"textMaxValue\">" + valueString + "</span>");
-                client.println("<input type=\"text\" id=\"MaxInput\" class=\"textbox\" oninput=\"Maxchange(this.value)\" value=\"" + valueString + "\" /></p>");
-                client.println("<script> function Maxchange(pos) { ");
-                client.println("document.getElementById(\"textMaxValue\").innerHTML = pos;");
-                client.println("sendThrottled('Max', \"/?Max=\" + pos + \"&\");");
-                client.println("} </script>");
-
                 valueString = String(chMin, DEC);
                 client.println("<p><h3>Servo Min (&micro;s): <span id=\"textMinValue\">" + valueString + "</span>");
                 client.println("<input type=\"text\" id=\"MinInput\" class=\"textbox\" oninput=\"Minchange(this.value)\" value=\"" + valueString + "\" /></p>");
@@ -839,6 +831,14 @@ void webInterface()
                 client.println("<script> function Centerchange(pos) { ");
                 client.println("document.getElementById(\"textCenterValue\").innerHTML = pos;");
                 client.println("sendThrottled('Center', \"/?Center=\" + pos + \"&\");");
+                client.println("} </script>");
+
+                valueString = String(chMax, DEC);
+                client.println("<p><h3>Servo Max (&micro;s): <span id=\"textMaxValue\">" + valueString + "</span>");
+                client.println("<input type=\"text\" id=\"MaxInput\" class=\"textbox\" oninput=\"Maxchange(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<script> function Maxchange(pos) { ");
+                client.println("document.getElementById(\"textMaxValue\").innerHTML = pos;");
+                client.println("sendThrottled('Max', \"/?Max=\" + pos + \"&\");");
                 client.println("} </script>");
 
                 valueString = String(SERVO_DEGREES[selectedServo], DEC);
@@ -861,6 +861,11 @@ void webInterface()
                 }
                 client.println("</p>");
 
+                // SBUS inverted --------------------------------------------
+                client.println("<p><h3>SBUS: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
+                client.println("<a href=\"/?Sbus=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 1 ? "buttonActive" : "button3") + "\">Standard</button></a>");
+                client.println("<a href=\"/?Sbus=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 0 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
+
                 // Power scale --------------------------------------------
                 valueString = String(POWER_SCALE, DEC);
                 client.println("<p><h3>Power Scale: <span id=\"textPowerValue\">" + valueString + "</span> (Battery: " + String(batteryVoltage, 2) + "V)</h3>");
@@ -869,11 +874,6 @@ void webInterface()
                 client.println("document.getElementById(\"textPowerValue\").innerHTML = pos;");
                 client.println("sendThrottled('Power', \"/?Power=\" + pos + \"&\");");
                 client.println("} </script>");
-
-                // SBUS inverted --------------------------------------------
-                client.println("<p><h3>SBUS: " + String(SBUS_INVERTED == 1 ? "Standard" : "Inversed") + "</h3>");
-                client.println("<a href=\"/?Sbus=1&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 1 ? "buttonActive" : "button3") + "\">Standard</button></a>");
-                client.println("<a href=\"/?Sbus=0&\"><button style=\"width:48%;display:inline-block;\" class=\"button " + String(SBUS_INVERTED == 0 ? "buttonActive" : "button3") + "\">Inversed</button></a></p>");
 
                 // Encoder direction --------------------------------------------
                 client.println("<p><h3>Encoder Direction: " + String(ENCODER_INVERTED == 0 ? "Standard" : "Inversed") + "</h3>");
@@ -888,6 +888,23 @@ void webInterface()
                 client.println("document.getElementById(\"textSpeedCurveValue\").innerHTML = (pos/10.0).toFixed(1);");
                 client.println("sendThrottled('SpeedCurve', \"/?SpeedCurve=\" + pos + \"&\");");
                 client.println("} </script>");
+
+                // Joystick Mode channel mapping (which channel each control drives) -----
+                client.println("<p><h3>Joystick Steer -> Channel</h3>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyX=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
+
+                client.println("<p><h3>Joystick Throttle -> Channel</h3>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyY=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
 
                 // WiFi on/off --------------------------------------------
                 client.println("<p><h3>WiFi: " + String(WIFI_ON == 1 ? "On" : "Off") + "</h3>");
@@ -915,23 +932,6 @@ void webInterface()
                 client.println("<script> function StaPassChange(val) { ");
                 client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
                 client.println("} </script>");
-
-                // Joystick Mode channel mapping (which channel each control drives) -----
-                client.println("<p><h3>Joystick Steer -> Channel</h3>");
-                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
-                {
-                  String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyX=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
-                }
-                client.println("</p>");
-
-                client.println("<p><h3>Joystick Throttle -> Channel</h3>");
-                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
-                {
-                  String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyY=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
-                }
-                client.println("</p>");
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");

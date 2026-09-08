@@ -1064,10 +1064,9 @@ void MenuUpdate()
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "  Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Manual Mode");
+    display.drawString(64, 0, "  Menu >");
+    display.drawString(64, 17, "Manual Mode");
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.drawString(0, 0, "Hz");
@@ -1110,11 +1109,10 @@ void MenuUpdate()
     servoModes(); // Refresh servo operation mode
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Sweep Mode");
-    display.drawString(64, 45, oscillateServoString[LANGUAGE]);
+    display.drawString(64, 0, "< Menu >");
+    display.drawString(64, 17, "Sweep Mode");
+    display.drawString(64, 37, oscillateServoString[LANGUAGE]);
     drawWiFi();
     display.display();
 
@@ -1137,10 +1135,9 @@ void MenuUpdate()
   case ExpertFunctions_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Expert Functions");
+    display.drawString(64, 0, "< Menu >");
+    display.drawString(64, 17, "Expert Functions");
     drawWiFi();
     display.display();
 
@@ -1163,10 +1160,9 @@ void MenuUpdate()
   case Info_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Info");
+    display.drawString(64, 0, "< Menu >");
+    display.drawString(64, 17, "Info");
     drawWiFi();
     display.display();
 
@@ -1189,10 +1185,9 @@ void MenuUpdate()
   case Settings_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu  ");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, settingsString[LANGUAGE]);
+    display.drawString(64, 0, "< Menu  ");
+    display.drawString(64, 17, settingsString[LANGUAGE]);
     drawWiFi();
     display.display();
 
@@ -1443,36 +1438,35 @@ void MenuUpdate()
   case ExpertFunctions_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, ExpertFunctionsItem == 0 ? "  Menu >" : (ExpertFunctionsItem == 5 ? "< Menu  " : "< Menu >"));
     display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 0, ExpertFunctionsItem == 0 ? "  Menu >" : (ExpertFunctionsItem == 5 ? "< Menu  " : "< Menu >"));
     switch (ExpertFunctionsItem)
     {
     case 0:
-      display.drawString(64, 25, PwmImpulseString[LANGUAGE]);
-      display.drawString(64, 45, readCh1Ch5String[LANGUAGE]);
+      display.drawString(64, 17, PwmImpulseString[LANGUAGE]);
+      display.drawString(64, 37, readCh1Ch5String[LANGUAGE]);
       break;
     case 1:
-      display.drawString(64, 25, "PPM Multiswitch");
-      display.drawString(64, 45, readCh5String[LANGUAGE]);
+      display.drawString(64, 17, "PPM Multiswitch");
+      display.drawString(64, 37, readCh5String[LANGUAGE]);
       break;
     case 2:
-      display.drawString(64, 25, readSbusString[LANGUAGE]);
-      display.drawString(64, 45, "CH5");
+      display.drawString(64, 17, readSbusString[LANGUAGE]);
+      display.drawString(64, 37, "CH5");
       break;
     case 3:
-      display.drawString(64, 25, readIbusString[LANGUAGE]);
-      display.drawString(64, 45, "CH5");
+      display.drawString(64, 17, readIbusString[LANGUAGE]);
+      display.drawString(64, 37, "CH5");
       break;
     case 4:
-      display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
+      display.drawString(64, 17, readOscilloscopeString[LANGUAGE]);
       display.setFont(ArialMT_Plain_10);
-      display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+      display.drawString(64, 37, readOscilloscopeString2[LANGUAGE]);
       break;
     case 5:
-      display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
+      display.drawString(64, 17, signalGeneratorString[LANGUAGE]);
       display.setFont(ArialMT_Plain_10);
-      display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
+      display.drawString(64, 37, signalGeneratorString2[LANGUAGE]);
       break;
     }
     drawWiFi();
@@ -1927,139 +1921,138 @@ void MenuUpdate()
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, SettingsItem == 0 ? "  Settings >" : (SettingsItem == 14 ? "< Settings  " : "< Settings >"));
     display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 0, SettingsItem == 0 ? "  Settings >" : (SettingsItem == 14 ? "< Settings  " : "< Settings >"));
     switch (SettingsItem)
     {
     case 0:
-      display.drawString(64, 25, "Wifi");
-      if (WIFI_ON == 1)
-      {
-        display.drawString(64, 45, onString[LANGUAGE]);
-      }
-      else
-      {
-        display.drawString(64, 45, offString[LANGUAGE]);
-      }
+      display.drawString(64, 17, channelString[LANGUAGE]);
+      display.drawString(64, 37, String(selectedServo + 1));
       break;
     case 1:
-      display.drawString(64, 25, factoryResetString[LANGUAGE]);
-      if (RESET_EEPROM == 1)
-      {
-        display.drawString(64, 45, yesString[LANGUAGE]);
-      }
-      else
-      {
-        display.drawString(64, 45, noString[LANGUAGE]);
-      }
+      display.drawString(64, 17, servoMinString[LANGUAGE]);
+      display.drawString(64, 37, String(SERVO_MIN));
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 42, "CH" + String(selectedServo + 1));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 42, servoMode);
       break;
     case 2:
-      display.drawString(64, 25, channelString[LANGUAGE]);
-      display.drawString(64, 45, String(selectedServo + 1));
+      display.drawString(64, 17, servoCenterString[LANGUAGE]);
+      display.drawString(64, 37, String(SERVO_CENTER));
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 42, "CH" + String(selectedServo + 1));
+      display.setTextAlignment(TEXT_ALIGN_RIGHT);
+      display.drawString(128, 42, servoMode);
       break;
     case 3:
-      display.drawString(64, 25, servoMaxString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_MAX));
+      display.drawString(64, 17, servoMaxString[LANGUAGE]);
+      display.drawString(64, 37, String(SERVO_MAX));
       display.setFont(ArialMT_Plain_10);
       display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      display.drawString(0, 42, "CH" + String(selectedServo + 1));
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(128, 50, servoMode);
+      display.drawString(128, 42, servoMode);
       break;
     case 4:
-      display.drawString(64, 25, servoMinString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_MIN));
+      display.drawString(64, 17, servoAngleString[LANGUAGE]);
+      display.drawString(64, 37, String(SERVO_DEGREES[selectedServo]) + (char)176);
       display.setFont(ArialMT_Plain_10);
       display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(0, 50, "CH" + String(selectedServo + 1));
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(128, 50, servoMode);
+      display.drawString(0, 42, "CH" + String(selectedServo + 1));
       break;
     case 5:
-      display.drawString(64, 25, servoCenterString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_CENTER));
-      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 17, servoHzString[LANGUAGE]);
+      display.drawString(64, 37, String(SERVO_Hz));
       display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(0, 50, "CH" + String(selectedServo + 1));
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(0, 19, "µs");
+      display.drawString(0, 29, String(SERVO_MIN));
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(128, 50, servoMode);
+      display.drawString(128, 19, "µs");
+      display.drawString(128, 29, String(SERVO_MAX));
+      display.drawString(128, 42, servoMode);
       break;
     case 6:
-      display.drawString(64, 25, servoAngleString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_DEGREES[selectedServo]) + (char)176);
-      display.setFont(ArialMT_Plain_10);
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.drawString(0, 50, "CH" + String(selectedServo + 1));
-      break;
-    case 7:
-      display.drawString(64, 25, servoHzString[LANGUAGE]);
-      display.drawString(64, 45, String(SERVO_Hz));
-      display.setTextAlignment(TEXT_ALIGN_LEFT);
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(0, 27, "µs");
-      display.drawString(0, 37, String(SERVO_MIN));
-      display.setTextAlignment(TEXT_ALIGN_RIGHT);
-      display.drawString(128, 27, "µs");
-      display.drawString(128, 37, String(SERVO_MAX));
-      display.drawString(128, 50, servoMode);
-      break;
-    case 8:
-      display.setFont(ArialMT_Plain_10);
-      display.drawString(64, 20, PowerScaleString[LANGUAGE]);
-      display.drawString(64, 31, String(POWER_SCALE));
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 45, String(batteryVoltage, 2) + "V");
-      break;
-    case 9:
-      display.drawString(64, 25, "SBUS");
+      display.drawString(64, 17, "SBUS");
       if (SBUS_INVERTED == 1)
       {
-        display.drawString(64, 45, standardString[LANGUAGE]);
+        display.drawString(64, 37, standardString[LANGUAGE]);
       }
       else
       {
-        display.drawString(64, 45, inversedString[LANGUAGE]);
+        display.drawString(64, 37, inversedString[LANGUAGE]);
       }
       break;
-    case 10:
-      display.drawString(64, 25, encoderDirectionString[LANGUAGE]);
+    case 7:
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 18, PowerScaleString[LANGUAGE]);
+      display.drawString(64, 29, String(POWER_SCALE));
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 43, String(batteryVoltage, 2) + "V");
+      break;
+    case 8:
+      display.drawString(64, 17, encoderDirectionString[LANGUAGE]);
       if (ENCODER_INVERTED == 0)
       {
-        display.drawString(64, 45, standardString[LANGUAGE]);
+        display.drawString(64, 37, standardString[LANGUAGE]);
       }
       else
       {
-        display.drawString(64, 45, inversedString[LANGUAGE]);
+        display.drawString(64, 37, inversedString[LANGUAGE]);
       }
+      break;
+    case 9:
+      display.drawString(64, 17, speedCurveString[LANGUAGE]);
+      display.drawString(64, 37, String(SPEED_CURVE / 10.0, 1));
+      break;
+    case 10:
+      display.drawString(64, 17, "Joystick Steer");
+      display.drawString(64, 37, "CH" + String(JOYSTICK_X_CHANNEL + 1));
       break;
     case 11:
-      display.drawString(64, 25, speedCurveString[LANGUAGE]);
-      display.drawString(64, 45, String(SPEED_CURVE / 10.0, 1));
+      display.drawString(64, 17, "Joystick Throttle");
+      display.drawString(64, 37, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
       break;
     case 12:
-      display.drawString(64, 25, "Wifi Mode");
-      if (WIFI_MODE == WIFI_STATION_MODE)
+      display.drawString(64, 17, "Wifi");
+      if (WIFI_ON == 1)
       {
-        display.drawString(64, 45, "Station");
+        display.drawString(64, 37, onString[LANGUAGE]);
       }
       else
       {
-        display.drawString(64, 45, "Access Point");
+        display.drawString(64, 37, offString[LANGUAGE]);
       }
       break;
     case 13:
-      display.drawString(64, 25, "Joystick Steer");
-      display.drawString(64, 45, "CH" + String(JOYSTICK_X_CHANNEL + 1));
+      display.drawString(64, 17, "Wifi Mode");
+      if (WIFI_MODE == WIFI_STATION_MODE)
+      {
+        display.drawString(64, 37, "Station");
+      }
+      else
+      {
+        display.drawString(64, 37, "Access Point");
+      }
       break;
     case 14:
-      display.drawString(64, 25, "Joystick Throttle");
-      display.drawString(64, 45, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
+      display.drawString(64, 17, factoryResetString[LANGUAGE]);
+      if (RESET_EEPROM == 1)
+      {
+        display.drawString(64, 37, yesString[LANGUAGE]);
+      }
+      else
+      {
+        display.drawString(64, 37, noString[LANGUAGE]);
+      }
       break;
     }
     if (Edit)
     {
-      display.drawString(10, 50, "->");
+      display.drawString(10, 42, "->");
     }
     display.display();
 
@@ -2080,51 +2073,51 @@ void MenuUpdate()
         switch (SettingsItem)
         {
         case 0:
-          WIFI_ON--;
-          WiFiChanged = true;
+          selectedServo--; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 1:
-          RESET_EEPROM--;
+          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 2:
-          selectedServo--; // Pick which servo channel Max/Min/Center below apply to
+          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 3:
           SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 4:
-          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
-          break;
-        case 5:
-          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
-          break;
-        case 6:
           SERVO_DEGREES[selectedServo] -= encoderSpeed;
           break;
-        case 7:
+        case 5:
           SERVO_MODE--;
           break;
-        case 8:
-          POWER_SCALE--;
-          break;
-        case 9:
+        case 6:
           SBUS_INVERTED--;
           break;
-        case 10:
+        case 7:
+          POWER_SCALE--;
+          break;
+        case 8:
           ENCODER_INVERTED--;
           break;
-        case 11:
+        case 9:
           SPEED_CURVE--;
           break;
+        case 10:
+          JOYSTICK_X_CHANNEL--;
+          break;
+        case 11:
+          JOYSTICK_Y_CHANNEL--;
+          break;
         case 12:
-          WIFI_MODE--;
+          WIFI_ON--;
           WiFiChanged = true;
           break;
         case 13:
-          JOYSTICK_X_CHANNEL--;
+          WIFI_MODE--;
+          WiFiChanged = true;
           break;
         case 14:
-          JOYSTICK_Y_CHANNEL--;
+          RESET_EEPROM--;
           break;
         }
       }
@@ -2140,51 +2133,51 @@ void MenuUpdate()
         switch (SettingsItem)
         {
         case 0:
-          WIFI_ON++;
-          WiFiChanged = true;
+          selectedServo++; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 1:
-          RESET_EEPROM++;
+          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 2:
-          selectedServo++; // Pick which servo channel Max/Min/Center below apply to
+          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 3:
           SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 4:
-          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
-          break;
-        case 5:
-          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
-          break;
-        case 6:
           SERVO_DEGREES[selectedServo] += encoderSpeed;
           break;
-        case 7:
+        case 5:
           SERVO_MODE++;
           break;
-        case 8:
-          POWER_SCALE++;
-          break;
-        case 9:
+        case 6:
           SBUS_INVERTED++;
           break;
-        case 10:
+        case 7:
+          POWER_SCALE++;
+          break;
+        case 8:
           ENCODER_INVERTED++;
           break;
-        case 11:
+        case 9:
           SPEED_CURVE++;
           break;
+        case 10:
+          JOYSTICK_X_CHANNEL++;
+          break;
+        case 11:
+          JOYSTICK_Y_CHANNEL++;
+          break;
         case 12:
-          WIFI_MODE++;
+          WIFI_ON++;
           WiFiChanged = true;
           break;
         case 13:
-          JOYSTICK_X_CHANNEL++;
+          WIFI_MODE++;
+          WiFiChanged = true;
           break;
         case 14:
-          JOYSTICK_Y_CHANNEL++;
+          RESET_EEPROM++;
           break;
         }
       }
