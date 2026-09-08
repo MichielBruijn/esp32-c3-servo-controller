@@ -527,18 +527,23 @@ void webInterface()
                   client.println("  }");
                   // Pointer tracked by ID via window listeners, no setPointerCapture() - both were
                   // tried and ruled out as the cause of the order-dependent bug described above.
+                  // No e.preventDefault() either: diagnostics showed the page stays at a steady
+                  // 120fps but the second simultaneous touch's pointermove rate drops ~14x (112/s
+                  // vs 8/s) - not a rendering problem, an event-*delivery* one. preventDefault()
+                  // forces the browser to synchronously confirm with the main thread before it can
+                  // fast-path touch dispatch on the compositor thread; touch-action:none (CSS)
+                  // already suppresses scroll/zoom, so the JS-level preventDefault() is redundant
+                  // and may be exactly what's throttling the second touch's event stream.
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
                   client.println("    diagCounts[trackId]++;");
                   client.println("    pendingVal = valueFromPointer(e);");
                   client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
-                  client.println("    e.preventDefault();");
                   client.println("  }");
                   client.println("  function onStart(e) {");
                   client.println("    if (dragging) return;");
                   client.println("    dragging = true; activePointerId = e.pointerId; lastSent = 0; rect = track.getBoundingClientRect();");
                   client.println("    onMove(e);");
-                  client.println("    e.preventDefault();");
                   client.println("  }");
                   client.println("  function onEnd(e) {");
                   client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
