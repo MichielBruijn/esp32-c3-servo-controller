@@ -88,6 +88,64 @@ void webInterface()
                 return;
               }
 
+              // Download the currently-running firmware as a .bin - so it can be flashed onto
+              // another device via the upload page below, no internet needed on either end.
+              if (header.indexOf("GET /firmware.bin") >= 0)
+              {
+                sendRunningFirmwareAsDownload(client);
+                client.stop();
+                header = "";
+                return;
+              }
+
+              // Manual, no-internet firmware upload - counterpart to the download above.
+              if (header.indexOf("POST /uploadfirmware/on") >= 0)
+              {
+                int clIdx = header.indexOf("Content-Length:");
+                long contentLength = (clIdx >= 0) ? header.substring(clIdx + 15, header.indexOf('\r', clIdx)).toInt() : 0;
+                bool ok = uploadCurrentFirmware(client, contentLength);
+                // uploadCurrentFirmware() restarts the device on success and never returns here -
+                // this response is only ever seen after a failure.
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/plain");
+                client.println("Connection: close");
+                client.println();
+                client.println(ok ? "OK" : ("Failed: " + updateErrorMessage));
+                client.stop();
+                header = "";
+                return;
+              }
+
+              if (header.indexOf("GET /uploadfirmware/on") >= 0)
+              {
+                client.println("HTTP/1.1 200 OK");
+                client.println("Content-type:text/html; charset=utf-8");
+                client.println("Connection: close");
+                client.println();
+                client.println("<!DOCTYPE html><html><head><meta charset=\"UTF-8\">");
+                client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+                client.println("<title>Upload Firmware</title>");
+                client.println("<style>html{font-family:Helvetica;text-align:center;} .button{border:none;color:white;padding:10px 40px;width:80%;font-size:20px;margin:8px;cursor:pointer;border-radius:4px;} .button1{background-color:#4CAF50;} .button2{background-color:#ff0000;}</style>");
+                client.println("</head><body>");
+                client.println("<h1>Servo Tester</h1><h2>Upload Firmware</h2>");
+                client.println("<p>Flash a firmware.bin directly - e.g. one downloaded from another device's Info page. No internet needed.</p>");
+                client.println("<p><input type=\"file\" id=\"fwFile\" accept=\".bin\"></p>");
+                client.println("<p><button class=\"button button1\" onclick=\"uploadFw()\">Upload &amp; Install</button></p>");
+                client.println("<p id=\"fwStatus\"></p>");
+                client.println("<script>function uploadFw(){");
+                client.println("var f=document.getElementById('fwFile').files[0];");
+                client.println("if(!f){alert('Choose a file first');return;}");
+                client.println("document.getElementById('fwStatus').innerText='Uploading...';");
+                client.println("fetch('/uploadfirmware/on',{method:'POST',body:f})");
+                client.println(".then(r=>r.text()).then(t=>{document.getElementById('fwStatus').innerText=t;})");
+                client.println(".catch(e=>{document.getElementById('fwStatus').innerText='Upload failed: '+e;});}</script>");
+                client.println("<p><a href=\"/80/on\"><button class=\"button button2\">Menu</button></a></p>");
+                client.println("</body></html>");
+                client.stop();
+                header = "";
+                return;
+              }
+
               // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
               // followed by the content type so the client knows what to expect, then a blank line:
               client.println("HTTP/1.1 200 OK");
@@ -669,6 +727,8 @@ void webInterface()
                   updateErrorMessage = "";
                 }
                 client.println("<p><a href=\"/checkupdate/on\"><button class=\"button button3\">Check for Update</button></a></p>");
+                client.println("<p><a href=\"/firmware.bin\"><button class=\"button button3\">Download Firmware</button></a></p>");
+                client.println("<p><a href=\"/uploadfirmware/on\"><button class=\"button button3\">Upload Firmware</button></a></p>");
 
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;

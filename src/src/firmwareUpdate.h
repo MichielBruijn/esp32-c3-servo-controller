@@ -8,6 +8,9 @@
 // ESP32 has no reliable way to fetch a fresh CA bundle on its own. Acceptable trade-off for a
 // hobby project checking its own public repo; not the choice to make for anything security-sensitive.
 
+#include <esp_ota_ops.h> // for esp_ota_get_running_partition() - reading back the current firmware to offer as a download
+#include <esp_partition.h>
+
 const char *GITHUB_RELEASES_API_URL = "https://api.github.com/repos/MichielBruijn/esp32-servo-tester/releases/latest";
 const char *FIRMWARE_ASSET_NAME = "firmware.bin";
 
@@ -88,14 +91,12 @@ void checkForFirmwareUpdate()
   }
 }
 
-// Downloads latestFirmwareUrl and writes it to the OTA partition. Blocks for the duration of the
-// download (typically single-digit seconds on a home network). Restarts the device on success;
-// on failure, leaves the running firmware untouched and sets updateErrorMessage.
-bool installFirmwareUpdate()
-{
-  if (latestFirmwareUrl.length() == 0 || updateInProgress)
-    return false;
+// Shared between installFirmwareUpdate() (GitHub download) and uploadCurrentFirmware() (manual,
+// no-internet upload) below - both block the main loop for their whole duration, so both need
+// the same "silence the buzzer up front" and "show progress/completion" handling.
 
+void beginFirmwareWrite()
+{
   updateInProgress = true;
 
   // Silence any click-beep immediately - beep() (which normally turns it back off after
@@ -111,6 +112,40 @@ bool installFirmwareUpdate()
   display.drawString(64, 25, "Updating...");
   display.drawString(64, 45, "Do not power off");
   display.display();
+}
+
+void showFirmwareWriteProgress(size_t written, size_t total)
+{
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 15, "Updating...");
+  display.setFont(ArialMT_Plain_24);
+  display.drawString(64, 35, String((written * 100) / total) + "%");
+  display.display();
+}
+
+void showFirmwareWriteCompleteAndRestart()
+{
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.setFont(ArialMT_Plain_16);
+  display.drawString(64, 25, "Update complete");
+  display.drawString(64, 45, "Restarting...");
+  display.display();
+  delay(1500);
+  ESP.restart();
+}
+
+// Downloads latestFirmwareUrl and writes it to the OTA partition. Blocks for the duration of the
+// download (typically single-digit seconds on a home network). Restarts the device on success;
+// on failure, leaves the running firmware untouched and sets updateErrorMessage.
+bool installFirmwareUpdate()
+{
+  if (latestFirmwareUrl.length() == 0 || updateInProgress)
+    return false;
+
+  beginFirmwareWrite();
 
   // GitHub release assets redirect (302) to a signed objects.githubusercontent.com URL - a
   // different host. HTTPClient's own setFollowRedirects() reuses the same underlying
@@ -195,15 +230,7 @@ bool installFirmwareUpdate()
       return false;
     }
 
-    Update.onProgress([](size_t written, size_t total)
-                       {
-      display.clear();
-      display.setTextAlignment(TEXT_ALIGN_CENTER);
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 15, "Updating...");
-      display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 35, String((written * 100) / total) + "%");
-      display.display(); });
+    Update.onProgress(showFirmwareWriteProgress);
 
     WiFiClient *stream = https.getStreamPtr();
     size_t written = Update.writeStream(*stream);
@@ -222,14 +249,7 @@ bool installFirmwareUpdate()
       return false;
     }
 
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "Update complete");
-    display.drawString(64, 45, "Restarting...");
-    display.display();
-    delay(1500);
-    ESP.restart();
+    showFirmwareWriteCompleteAndRestart();
     return true; // Unreachable, but keeps the compiler happy about all paths returning
   }
 
@@ -237,4 +257,105 @@ bool installFirmwareUpdate()
   Serial.println("Firmware update: " + updateErrorMessage);
   updateInProgress = false;
   return false;
+}
+
+// Streams the currently-running firmware image as a downloadable .bin - so it can be copied onto
+// another device (see uploadCurrentFirmware() below) without either device needing internet
+// access. ESP.getSketchSize() gives the actual image size (not the whole, larger OTA partition),
+// so the download is byte-exact with what `pio run` originally produced.
+void sendRunningFirmwareAsDownload(WiFiClient &client)
+{
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  size_t size = ESP.getSketchSize();
+
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type: application/octet-stream");
+  client.println("Content-Disposition: attachment; filename=\"servotester-v" + String(codeVersion) + ".bin\"");
+  client.println("Content-Length: " + String(size));
+  client.println("Connection: close");
+  client.println();
+
+  uint8_t buf[1024];
+  size_t offset = 0;
+  while (offset < size)
+  {
+    size_t toRead = min(sizeof(buf), size - offset);
+    if (esp_partition_read(running, offset, buf, toRead) != ESP_OK)
+      break;
+    // client.write() can send fewer bytes than asked (e.g. a full TX buffer) - looping until
+    // the whole chunk is actually sent avoids silently dropping bytes from the download.
+    size_t sent = 0;
+    while (sent < toRead)
+    {
+      size_t n = client.write(buf + sent, toRead - sent);
+      if (n == 0)
+        return; // connection dropped - nothing more we can do
+      sent += n;
+    }
+    offset += toRead;
+  }
+}
+
+// Flashes a firmware.bin uploaded directly from a browser (e.g. one downloaded from another
+// device above) - no internet or GitHub release involved. The upload page posts the raw file
+// as the POST body (not a multipart form), so this just reads exactly contentLength raw bytes
+// off the socket - the same idea as installFirmwareUpdate() above, but the bytes come from the
+// browser instead of a GitHub download.
+bool uploadCurrentFirmware(WiFiClient &client, size_t contentLength)
+{
+  if (contentLength == 0 || updateInProgress)
+    return false;
+
+  beginFirmwareWrite();
+
+  if (!Update.begin(contentLength))
+  {
+    updateErrorMessage = "Not enough OTA space";
+    Serial.println("Firmware update: " + updateErrorMessage);
+    updateInProgress = false;
+    return false;
+  }
+
+  Update.onProgress(showFirmwareWriteProgress);
+
+  size_t received = 0;
+  uint8_t buf[1024];
+  unsigned long lastProgressMillis = millis();
+  while (received < contentLength)
+  {
+    if (client.available())
+    {
+      int n = client.read(buf, min(sizeof(buf), contentLength - received));
+      if (n > 0)
+      {
+        Update.write(buf, n);
+        received += n;
+        lastProgressMillis = millis();
+      }
+    }
+    else if (millis() - lastProgressMillis > 15000)
+    {
+      updateErrorMessage = "Upload stalled at " + String(received) + "/" + String(contentLength) + " bytes";
+      Serial.println("Firmware update: " + updateErrorMessage);
+      Update.abort();
+      updateInProgress = false;
+      return false;
+    }
+  }
+
+  bool endOk = Update.end();
+  bool finishedOk = Update.isFinished();
+
+  if (!endOk || !finishedOk)
+  {
+    updateErrorMessage = "Write failed: " + String(received) + "/" + String(contentLength) +
+                          " bytes, end=" + String(endOk) + ", " + Update.errorString();
+    Serial.println("Firmware update: " + updateErrorMessage);
+    Update.abort();
+    updateInProgress = false;
+    return false;
+  }
+
+  showFirmwareWriteCompleteAndRestart();
+  return true; // Unreachable, but keeps the compiler happy about all paths returning
 }
