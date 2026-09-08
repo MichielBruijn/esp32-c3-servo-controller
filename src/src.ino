@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.38"; // Software revision.
+char codeVersion[] = "0.40"; // Software revision.
 
 //
 // =======================================================================================================
@@ -208,6 +208,7 @@ int SERVO_CENTER_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
 int SERVO_DEGREES[NUM_SERVO_CHANNELS];      // Volledige draaihoek in graden (bv. 90/180/360), pro Kanal
 
 bool WiFiChanged;
+bool webArcadeMode; // Web interface: two-thumb touch-slider control page instead of the normal per-channel sliders
 
 // Encoder + button
 ESP32Encoder encoder;

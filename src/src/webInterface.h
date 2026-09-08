@@ -291,10 +291,19 @@ void webInterface()
               if (header.indexOf("GET /back/on") >= 0)
               {
                 Menu = Servotester_Select;
+                webArcadeMode = false;
               }
               if (header.indexOf("GET /10/on") >= 0)
               {
                 Menu = Servotester_Menu;
+                webArcadeMode = false;
+              }
+              if (header.indexOf("GET /arcade/on") >= 0)
+              {
+                // Reuses the Servotester_Menu screen so the mcpwm output loop there stays active -
+                // only the web page rendering differs (see the Servotester_Menu case below).
+                Menu = Servotester_Menu;
+                webArcadeMode = true;
               }
               if (header.indexOf("GET /20/on") >= 0)
               {
@@ -438,6 +447,80 @@ void webInterface()
               switch (Menu)
               {
               case Servotester_Menu:
+                if (webArcadeMode)
+                {
+                  // Steering (horizontal, left thumb) + throttle (vertical, right thumb) - the
+                  // common dual-thumb driving layout. Reuses the same JOYSTICK_X/Y_CHANNEL mapping
+                  // as the physical stick (Settings menu), so it's really just an alternative input
+                  // for the same thing. Springs back to center on release, like a self-centering stick.
+                  int throttleMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+                  int throttleMin = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][throttleMode];
+                  int throttleMax = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][throttleMode];
+                  int throttleCenterVal = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
+                  int steerMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
+                  int steerMin = SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][steerMode];
+                  int steerMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][steerMode];
+                  int steerCenterVal = servoCenterForChannel(JOYSTICK_X_CHANNEL);
+
+                  client.println("<style>");
+                  client.println("body{margin:0;} .arcadeBar{display:flex;justify-content:center;padding:8px;}");
+                  client.println(".arcadeWrap{display:flex;flex-direction:column;justify-content:space-between;gap:16px;height:80vh;padding:0 16px 16px;box-sizing:border-box;}");
+                  client.println(".arcadeTrack{position:relative;background:#d3d3d3;border-radius:16px;touch-action:none;user-select:none;}");
+                  client.println("#trackSteer{width:100%;height:100px;}");
+                  client.println("#trackThrottle{width:100px;flex:1;align-self:flex-end;}");
+                  client.println(".arcadeThumb{position:absolute;width:64px;height:64px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
+                  client.println("#thumbSteer{top:50%;left:50%;margin-top:-32px;margin-left:-32px;}");
+                  client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-32px;margin-bottom:-32px;}");
+                  client.println(".arcadeLabelL,.arcadeLabelR{position:absolute;top:50%;transform:translateY(-50%);font-size:16px;font-weight:bold;color:#555;}");
+                  client.println(".arcadeLabelL{left:14px;} .arcadeLabelR{right:14px;}");
+                  client.println(".arcadeLabelTop,.arcadeLabelBottom{position:absolute;left:0;right:0;text-align:center;font-size:16px;font-weight:bold;color:#555;}");
+                  client.println(".arcadeLabelTop{top:10px;} .arcadeLabelBottom{bottom:10px;}");
+                  client.println(".arcadeValueH{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:13px;color:#333;}");
+                  client.println(".arcadeValueV{position:absolute;top:50%;left:0;right:0;text-align:center;font-size:13px;color:#333;transform:translateY(18px);}");
+                  client.println("</style>");
+
+                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
+                  client.println("<div class=\"arcadeWrap\">");
+                  client.println("<div class=\"arcadeTrack\" id=\"trackSteer\"><div class=\"arcadeLabelL\">Left</div><div class=\"arcadeThumb\" id=\"thumbSteer\"></div><div class=\"arcadeValueH\" id=\"valueSteer\"></div><div class=\"arcadeLabelR\">Right</div></div>");
+                  client.println("<div class=\"arcadeTrack\" id=\"trackThrottle\"><div class=\"arcadeLabelTop\">Forward</div><div class=\"arcadeThumb\" id=\"thumbThrottle\"></div><div class=\"arcadeValueV\" id=\"valueThrottle\"></div><div class=\"arcadeLabelBottom\">Reverse</div></div>");
+                  client.println("</div>");
+
+                  client.println("<script>");
+                  client.println("function makeArcadeSlider(trackId, thumbId, valueId, horizontal, ch, min, center, max) {");
+                  client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId), valueEl = document.getElementById(valueId);");
+                  client.println("  var dragging = false;");
+                  client.println("  function valueFromPointer(e) {");
+                  client.println("    var rect = track.getBoundingClientRect();");
+                  client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
+                  client.println("    frac = Math.max(0, Math.min(1, frac));");
+                  client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
+                  client.println("  }");
+                  client.println("  function setThumb(val) {");
+                  client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
+                  client.println("    if (horizontal) { thumb.style.left = (frac * 100) + '%'; } else { thumb.style.bottom = (frac * 100) + '%'; }");
+                  client.println("    valueEl.textContent = val + ' \\u00b5s';");
+                  client.println("  }");
+                  client.println("  function onMove(e) {");
+                  client.println("    if (!dragging) return;");
+                  client.println("    var val = valueFromPointer(e);");
+                  client.println("    setThumb(val);");
+                  client.println("    sendPos(ch, val);");
+                  client.println("    e.preventDefault();");
+                  client.println("  }");
+                  client.println("  function onStart(e) { dragging = true; track.setPointerCapture(e.pointerId); onMove(e); }");
+                  client.println("  function onEnd() { if (!dragging) return; dragging = false; setThumb(center); sendPos(ch, center); }");
+                  client.println("  track.addEventListener('pointerdown', onStart);");
+                  client.println("  track.addEventListener('pointermove', onMove);");
+                  client.println("  track.addEventListener('pointerup', onEnd);");
+                  client.println("  track.addEventListener('pointercancel', onEnd);");
+                  client.println("  setThumb(center);");
+                  client.println("}");
+                  client.println("makeArcadeSlider('trackSteer','thumbSteer','valueSteer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
+                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle','valueThrottle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("</script>");
+                  break;
+                }
+
                 client.println("<h2>Servo Tester</h2>");
 
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
@@ -466,6 +549,7 @@ void webInterface()
                   client.println("} </script>");
                 }
 
+                client.println("<p><a href=\"/arcade/on\"><button class=\"button button3\">Arcade Mode (mobile)</button></a></p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
@@ -702,6 +786,7 @@ void webInterface()
                 client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
                 client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
                 client.println("<p><a href=\"/70/on\"><button class=\"button button1\">Joystick</button></a></p>");
+                client.println("<p><a href=\"/arcade/on\"><button class=\"button button1\">Arcade Mode (mobile)</button></a></p>");
                 client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Info</button></a></p>");
                 client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Oscilloscope</button></a></p>");
                 client.println("<p><a href=\"/100/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
