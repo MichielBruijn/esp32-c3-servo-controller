@@ -486,18 +486,17 @@ void webInterface()
                   client.println(".arcadeLabelTop{top:8px;} .arcadeLabelBottom{bottom:8px;}");
                   client.println("</style>");
 
-                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a><span id=\"valueSteer\"></span><span id=\"valueThrottle\"></span></div>");
+                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
                   client.println("<div class=\"arcadeWrap\">");
                   client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackSteer\"><div class=\"arcadeLabelL\">Left</div><div class=\"arcadeThumb\" id=\"thumbSteer\"></div><div class=\"arcadeLabelR\">Right</div></div></div>");
                   client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackThrottle\"><div class=\"arcadeLabelTop\">Forward</div><div class=\"arcadeThumb\" id=\"thumbThrottle\"></div><div class=\"arcadeLabelBottom\">Reverse</div></div></div>");
                   client.println("</div>");
 
                   client.println("<script>");
-                  client.println("function makeArcadeSlider(trackId, thumbId, valueId, label, horizontal, ch, min, center, max) {");
-                  client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId), valueEl = document.getElementById(valueId);");
-                  client.println("  var dragging = false, lastSent = 0;");
-                  client.println("  function valueFromPointer(e) {");
-                  client.println("    var rect = track.getBoundingClientRect();");
+                  client.println("function makeArcadeSlider(trackId, thumbId, horizontal, ch, min, center, max) {");
+                  client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId);");
+                  client.println("  var dragging = false, lastSent = 0, rect = null, pendingVal = center, rafScheduled = false;");
+                  client.println("  function valueFromPointer(e) {"); // Uses the rect cached once in onStart, not re-measured every move - re-measuring forces a layout reflow on every event, which is what made a second simultaneous drag stutter
                   client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
                   client.println("    frac = Math.max(0, Math.min(1, frac));");
                   client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
@@ -505,29 +504,30 @@ void webInterface()
                   client.println("  function setThumb(val) {");
                   client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
                   client.println("    if (horizontal) { thumb.style.left = (frac * 100) + '%'; } else { thumb.style.bottom = (frac * 100) + '%'; }");
-                  client.println("    valueEl.textContent = label + ': ' + val + ' \\u00b5s';");
+                  client.println("  }");
+                  client.println("  function applyFrame() {"); // Runs at most once per screen paint, decoupled from raw touch-event frequency
+                  client.println("    rafScheduled = false;");
+                  client.println("    if (!dragging) return;");
+                  client.println("    setThumb(pendingVal);");
+                  client.println("    var now = Date.now();");
+                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }"); // Caps send rate so 2 simultaneous drags don't overload the ESP32's WebSocket handling
                   client.println("  }");
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging) return;");
-                  client.println("    var val = valueFromPointer(e);");
-                  client.println("    setThumb(val);"); // Always smooth on screen, even if the send below is throttled
-                  client.println("    var now = Date.now();");
-                  client.println("    if (now - lastSent >= 30) {"); // Cap send rate so 2 simultaneous drags don't overload the ESP32's WebSocket handling
-                  client.println("      lastSent = now;");
-                  client.println("      sendPos(ch, val);");
-                  client.println("    }");
+                  client.println("    pendingVal = valueFromPointer(e);");
+                  client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
                   client.println("    e.preventDefault();");
                   client.println("  }");
-                  client.println("  function onStart(e) { dragging = true; lastSent = 0; track.setPointerCapture(e.pointerId); onMove(e); }");
-                  client.println("  function onEnd() { if (!dragging) return; dragging = false; setThumb(center); sendPos(ch, center); }");
+                  client.println("  function onStart(e) { dragging = true; lastSent = 0; rect = track.getBoundingClientRect(); track.setPointerCapture(e.pointerId); onMove(e); }");
+                  client.println("  function onEnd() { if (!dragging) return; dragging = false; pendingVal = center; setThumb(center); sendPos(ch, center); }");
                   client.println("  track.addEventListener('pointerdown', onStart);");
                   client.println("  track.addEventListener('pointermove', onMove);");
                   client.println("  track.addEventListener('pointerup', onEnd);");
                   client.println("  track.addEventListener('pointercancel', onEnd);");
                   client.println("  setThumb(center);");
                   client.println("}");
-                  client.println("makeArcadeSlider('trackSteer','thumbSteer','valueSteer','Steer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
-                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle','valueThrottle','Throttle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("makeArcadeSlider('trackSteer','thumbSteer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
+                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
                   client.println("</script>");
                   break;
                 }
