@@ -125,7 +125,9 @@ void webInterface()
                 client.println("<!DOCTYPE html><html><head><meta charset=\"UTF-8\">");
                 client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
                 client.println("<title>Upload Firmware</title>");
-                client.println("<style>html{font-family:Helvetica;text-align:center;} .button{border:none;color:white;padding:10px 40px;width:80%;font-size:20px;margin:8px;cursor:pointer;border-radius:4px;} .button1{background-color:#4CAF50;} .button2{background-color:#ff0000;}</style>");
+                client.println("<script>(function(){if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');})();</script>");
+                client.println("<style>:root{--bg:#f4f4f4;--fg:#000000;} [data-theme=\"dark\"]{--bg:#121212;--fg:#e8e8e8;}");
+                client.println("html{font-family:Helvetica;text-align:center;background:var(--bg);color:var(--fg);} .button{border:none;color:white;padding:10px 40px;width:80%;font-size:20px;margin:8px;cursor:pointer;border-radius:4px;} .button1{background-color:#4CAF50;} .button2{background-color:#ff0000;}</style>");
                 client.println("</head><body>");
                 client.println("<h1>Servo Tester</h1><h2>Upload Firmware</h2>");
                 client.println("<p>Flash a firmware.bin directly - e.g. one downloaded from another device's Info page. No internet needed.</p>");
@@ -468,8 +470,17 @@ void webInterface()
               // Emoji-as-favicon via an inline SVG data URI - a real icon without needing a separate served file/route.
               // The emoji is percent-encoded (not sent as raw UTF-8 bytes) so it can't be misread regardless of charset handling.
               client.println("<link rel=\"icon\" href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%95%B9</text></svg>\">");
+              // Dark mode: applied via a [data-theme="dark"] attribute on <html>, toggled by the
+              // button next to the page heading below and remembered in localStorage. Read back
+              // and applied as early as possible (right after <head> opens, before the rest of
+              // this CSS/HTML arrives) so the page doesn't flash light before switching to dark.
+              client.println("<script>(function(){if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark');})();</script>");
+
               // CSS for the buttons - feel free to change background color and font size to your liking
-              client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
+              client.println("<style>:root{--bg:#f4f4f4;--fg:#000000;--card:#ffffff;}");
+              client.println("[data-theme=\"dark\"]{--bg:#121212;--fg:#e8e8e8;--card:#1e1e1e;}");
+              client.println("html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center; background: var(--bg); color: var(--fg); }");
+              client.println("body { background: var(--bg); color: var(--fg); }");
               client.println(".button { border: yes; color: white; padding: 10px 40px; width: 100%;");
               client.println("text-decoration: none; font-size: 20px; margin: 2px; cursor: pointer;}");
               client.println(".slider { -webkit-appearance: none; -moz-appearance: none; appearance: none; width: 100%; height: 25px; background: #d3d3d3; outline: none; opacity: 0.7; -webkit-transition: .2s; transition: opacity .2s; }");
@@ -483,7 +494,8 @@ void webInterface()
               client.println(".button2 {background-color: #ff0000;}");
               client.println(".button3 {background-color: #777777;}");
               client.println(".buttonActive {background-color: #2196F3;}");
-              client.println(".textbox {font-size: 25px; text-align: center;}");
+              client.println(".textbox {font-size: 25px; text-align: center; background: var(--card); color: var(--fg); border: 1px solid #888;}");
+              client.println("h1,h2,h3 { color: var(--fg); }");
               client.println("</style>");
 
               // Throttled sender for slider/textbox updates: at most one request in flight per
@@ -526,6 +538,13 @@ void webInterface()
               client.println("  if (posSocketReady && posSocket.readyState === 1) { posSocket.send('Pos' + ch + '=' + pos); }");
               client.println("  else { sendThrottled('Pos' + ch, '/?Pos' + ch + '=' + pos + '&'); }");
               client.println("}");
+              client.println("function toggleTheme() {");
+              client.println("  var dark = document.documentElement.getAttribute('data-theme') === 'dark';");
+              client.println("  if (dark) { document.documentElement.removeAttribute('data-theme'); localStorage.setItem('theme', 'light'); }");
+              client.println("  else { document.documentElement.setAttribute('data-theme', 'dark'); localStorage.setItem('theme', 'dark'); }");
+              client.println("  var btn = document.getElementById('themeToggleBtn');");
+              client.println("  if (btn) btn.innerText = dark ? 'Dark Mode' : 'Light Mode';");
+              client.println("}");
               client.println("</script></head>");
 
               // Page heading (skipped for Joystick Mode - full-screen touch page, no room for it)
@@ -533,6 +552,8 @@ void webInterface()
               if (!webJoystickMode)
               {
                 client.println("<h1>Servo Tester</h1>");
+                client.println("<p><button id=\"themeToggleBtn\" class=\"button button3\" style=\"width:auto;padding:6px 16px;font-size:14px;\" onclick=\"toggleTheme()\">Dark Mode</button></p>");
+                client.println("<script>if(document.documentElement.getAttribute('data-theme')==='dark')document.getElementById('themeToggleBtn').innerText='Light Mode';</script>");
                 if (updateAvailable && Menu != Info_Menu)
                 {
                   client.println("<p style=\"background:#2196F3;color:white;padding:8px;border-radius:6px;\">Update available: v" + latestFirmwareVersion + " - <a href=\"/80/on\" style=\"color:white;\">see Info</a></p>");
