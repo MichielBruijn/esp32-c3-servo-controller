@@ -358,6 +358,21 @@ void webInterface()
               {
                 eepromInit(); // Restore factory defaults immediately
               }
+              if (header.indexOf("GET /checkupdate/on") >= 0)
+              {
+                checkForFirmwareUpdate();
+                if (!updateAvailable)
+                {
+                  updateErrorMessage = "No update available (running v" + String(codeVersion) + ")";
+                }
+              }
+              if (header.indexOf("GET /update/on") >= 0)
+              {
+                // Blocks for the download, then restarts on success - the browser will just see the
+                // connection drop, which is expected. On failure it falls through to the normal page
+                // render below, with updateErrorMessage set.
+                installFirmwareUpdate();
+              }
               if (header.indexOf("GET /pause/on") >= 0)
               {
                 if (Auto_Pause)
@@ -446,6 +461,10 @@ void webInterface()
               if (!webJoystickMode)
               {
                 client.println("<h1>Servo Tester</h1>");
+                if (updateAvailable && Menu != Info_Menu)
+                {
+                  client.println("<p style=\"background:#2196F3;color:white;padding:8px;border-radius:6px;\">Update available: v" + latestFirmwareVersion + " - <a href=\"/80/on\" style=\"color:white;\">see Info</a></p>");
+                }
               }
 
               switch (Menu)
@@ -621,7 +640,21 @@ void webInterface()
                 client.println("<p>Turn: move through list / adjust value<br>Short press: select<br>Long press: back<br>Double-click: next channel<br>BOOT button: next channel</p>");
 
                 client.println("<h3>Firmware</h3>");
-                client.println("<p>v" + String(codeVersion) + "</p>");
+                if (updateAvailable)
+                {
+                  client.println("<p>v" + String(codeVersion) + " - update available: v" + latestFirmwareVersion + "</p>");
+                  client.println("<p><a href=\"/update/on\" onclick=\"return confirm('Download and install v" + latestFirmwareVersion + "? The device will restart.');\"><button class=\"button button1\">Install Update</button></a></p>");
+                }
+                else
+                {
+                  client.println("<p>v" + String(codeVersion) + " (up to date)</p>");
+                }
+                if (updateErrorMessage.length() > 0)
+                {
+                  client.println("<p style=\"color:red;\">" + updateErrorMessage + "</p>");
+                  updateErrorMessage = "";
+                }
+                client.println("<p><a href=\"/checkupdate/on\"><button class=\"button button3\">Check for Update</button></a></p>");
 
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
@@ -785,7 +818,7 @@ void webInterface()
 
                 client.println("<p><a href=\"/save/on\"><button class=\"button button1\">Save</button></a></p>");
                 client.println("<p><a href=\"/factoryreset/on\" onclick=\"return confirm('Reset all settings to factory defaults?');\"><button class=\"button button2\">Factory Reset</button></a></p>");
-                client.println("<p><a href=\"/back/on\"><button class=\"button button3\">Menu</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
               }
 

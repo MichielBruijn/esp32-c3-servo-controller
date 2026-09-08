@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.62"; // Software revision.
+char codeVersion[] = "0.63"; // Software revision.
 
 //
 // =======================================================================================================
@@ -81,6 +81,9 @@ Array                                         1.0.0
 #include <esp_wifi.h>      // for esp_wifi_set_country() - default region caps WiFi to channels 1-11, blocking channel 12/13 networks
 #include <ESPmDNS.h>       // Reachable as http://servotester.local when joined to an existing network (Station mode)
 #include <WebSocketsServer.h> // Low-latency channel for live servo position updates while dragging a web slider
+#include <HTTPClient.h>       // for checking/downloading firmware releases from GitHub
+#include <WiFiClientSecure.h> // HTTPS transport for the GitHub API and release asset download
+#include <Update.h>           // for writing a downloaded firmware image to the OTA partition
 #include <EEPROM.h>          // for non volatile storage
 #include <Esp.h>             // for displaying memory information
 #include "rom/rtc.h"         // for displaying reset reason
@@ -107,6 +110,7 @@ using namespace std;
 #define EEPROM_SIZE (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
+bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actual factory reset is applied
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
@@ -168,6 +172,15 @@ int WIFI_MODE;           // 0 = Access Point, 1 = Station, see WifiModeEnum abov
 String STA_SSID = "";     // Home WiFi network SSID to join in Station mode, entered via the web interface
 String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode, entered via the web interface
 bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
+
+// Firmware update check (GitHub Releases) - see src/firmwareUpdate.h
+bool updateAvailable = false;      // True once a newer release than codeVersion has been found
+String latestFirmwareVersion = ""; // Version string of the latest GitHub release, e.g. "0.63"
+String latestFirmwareUrl = "";     // browser_download_url of that release's "firmware.bin" asset
+String updateErrorMessage = "";    // Set when a check or install attempt fails, shown once on the next page render
+bool updateInProgress = false;     // True while a download+flash is running (blocks re-entry)
+unsigned long lastUpdateCheckMillis = 0;
+const unsigned long UPDATE_CHECK_INTERVAL_MS = 6UL * 60 * 60 * 1000; // Re-check every 6 hours while connected
 // Which servo channel (0-4) each Joystick Mode control drives (web interface) - used to be the
 // physical analog joystick's X/Y channel mapping too, before that hardware was removed in favor
 // of the web-only Joystick Mode control.
@@ -528,6 +541,7 @@ int IRAM_ATTR local_adc1_read(int channel)
 
 // Additional headers --------------------------------------------------------------------------
 #include "src/servoModes.h"      // Servo operation profiles
+#include "src/firmwareUpdate.h"  // GitHub Releases update check + install
 #include "src/webInterface.h"    // Configuration website
 #include "src/oscilloscope.h"    // A handy oscilloscope
 #include "src/signalGenerator.h" // A handy signal generator
@@ -688,6 +702,9 @@ void wifiStationFinishConnected()
   server.begin(); // Start Webserver
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  checkForFirmwareUpdate();
+  lastUpdateCheckMillis = millis();
 }
 
 void wifiStartAccessPoint()
@@ -1798,11 +1815,22 @@ void MenuUpdate()
       display.drawString(0, 50, bootButtonString[LANGUAGE]);
       break;
     case 2: // Firmware
-      display.drawString(64, 0, "Firmware source:");
-      display.drawString(64, 12, "github.com/");
-      display.drawString(64, 22, "MichielBruijn/");
-      display.drawString(64, 32, "esp32-servo-tester");
-      display.drawString(64, 48, "v" + String(codeVersion));
+      if (!updateAvailable)
+      {
+        display.drawString(64, 0, "Firmware source:");
+        display.drawString(64, 12, "github.com/");
+        display.drawString(64, 22, "MichielBruijn/");
+        display.drawString(64, 32, "esp32-servo-tester");
+        display.drawString(64, 48, "v" + String(codeVersion));
+      }
+      else
+      {
+        display.setFont(ArialMT_Plain_16);
+        display.drawString(64, 2, "Update available!");
+        display.setFont(ArialMT_Plain_10);
+        display.drawString(64, 24, "v" + String(codeVersion) + " -> v" + latestFirmwareVersion);
+        display.drawString(64, 40, "Short press: Install");
+      }
       break;
     }
     display.display();
@@ -1821,6 +1849,11 @@ void MenuUpdate()
     {
       Menu = Info_Select;
       InfoPage = 0;
+    }
+
+    if (buttonState == 2 && InfoPage == 2 && updateAvailable)
+    {
+      installFirmwareUpdate(); // Blocks, then restarts the device on success
     }
     break;
 
@@ -1868,6 +1901,41 @@ void MenuUpdate()
 
   // SettingsItem *********************************************************
   case Settings_Menu:
+    if (ConfirmFactoryReset) // "Are you sure?" screen - turn to change, short press to apply, long press to cancel
+    {
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 10, "Factory Reset?");
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 35, RESET_EEPROM ? yesString[LANGUAGE] : noString[LANGUAGE]);
+      display.display();
+
+      if (encoderState == 1 || encoderState == 2)
+      {
+        RESET_EEPROM = !RESET_EEPROM;
+      }
+
+      if (buttonState == 2) // Short press: apply the choice
+      {
+        ConfirmFactoryReset = false;
+        Edit = false;
+        if (RESET_EEPROM)
+        {
+          eepromInit(); // Restore defaults
+        }
+        RESET_EEPROM = 0;
+      }
+
+      if (buttonState == 1) // Long press: cancel, no reset
+      {
+        ConfirmFactoryReset = false;
+        Edit = false;
+        RESET_EEPROM = 0;
+      }
+      break;
+    }
+
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -2240,19 +2308,19 @@ void MenuUpdate()
     {
       if (Edit)
       {
-        Edit = false;
         if (RESET_EEPROM)
         {
-          eepromInit(); // Restore defaults
+          ConfirmFactoryReset = true; // Ask "are you sure?" before wiping settings
         }
         else
         {
+          Edit = false;
           eepromWrite(); // Safe changes
-        }
-        if (WiFiChanged)
-        {
-          WiFiChanged = false;
-          wifiSetup();
+          if (WiFiChanged)
+          {
+            WiFiChanged = false;
+            wifiSetup();
+          }
         }
       }
       else
@@ -2615,6 +2683,14 @@ void loop()
   webInterface();
   if (WIFI_ON == 1)
     webSocket.loop();
+
+  // Periodic re-check while connected - a short (typically well under a second) blocking pause
+  // in the main loop every 6 hours is an acceptable trade-off against added complexity here.
+  if (!updateInProgress && millis() - lastUpdateCheckMillis > UPDATE_CHECK_INTERVAL_MS)
+  {
+    lastUpdateCheckMillis = millis();
+    checkForFirmwareUpdate();
+  }
   // Serial.print(loopDuration());
 }
 
