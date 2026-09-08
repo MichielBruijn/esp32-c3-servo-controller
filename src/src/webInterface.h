@@ -73,7 +73,7 @@ void webInterface()
               // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
               // followed by the content type so the client knows what to expect, then a blank line:
               client.println("HTTP/1.1 200 OK");
-              client.println("Content-type:text/html");
+              client.println("Content-type:text/html; charset=utf-8");
               client.println("Connection: close");
               client.println();
 
@@ -301,7 +301,7 @@ void webInterface()
               // instead of a separate full-page navigation that used to make Center feel slow.
               if (header.indexOf("GET /back/on") >= 0)
               {
-                Menu = Servotester_Auswahl;
+                Menu = Servotester_Select;
               }
               if (header.indexOf("GET /10/on") >= 0)
               {
@@ -309,23 +309,23 @@ void webInterface()
               }
               if (header.indexOf("GET /20/on") >= 0)
               {
-                Menu = Automatik_Modus_Menu;
+                Menu = AutoMode_Menu;
               }
               if (header.indexOf("GET /30/on") >= 0)
               {
-                Menu = Impuls_lesen_Menu;
+                Menu = ReadPulse_Menu;
               }
               if (header.indexOf("GET /40/on") >= 0)
               {
-                Menu = Multiswitch_lesen_Menu;
+                Menu = ReadMultiswitch_Menu;
               }
               if (header.indexOf("GET /50/on") >= 0)
               {
-                Menu = SBUS_lesen_Menu;
+                Menu = ReadSbus_Menu;
               }
               if (header.indexOf("GET /60/on") >= 0)
               {
-                Menu = IBUS_lesen_Menu;
+                Menu = ReadIbus_Menu;
               }
               if (header.indexOf("GET /70/on") >= 0)
               {
@@ -333,7 +333,7 @@ void webInterface()
               }
               if (header.indexOf("GET /120/on") >= 0)
               {
-                Menu = Einstellung_Menu;
+                Menu = Settings_Menu;
               }
               if (header.indexOf("GET /save/on") >= 0)
               {
@@ -365,8 +365,12 @@ void webInterface()
               if (!xhrOnly)
               {
               client.println("<!DOCTYPE html><html>");
-              client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-              client.println("<link rel=\"icon\" href=\"data:,\">");
+              client.println("<head><meta charset=\"UTF-8\">");
+              client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+              client.println("<title>Servo Tester</title>");
+              // Emoji-as-favicon via an inline SVG data URI - a real icon without needing a separate served file/route.
+              // The emoji is percent-encoded (not sent as raw UTF-8 bytes) so it can't be misread regardless of charset handling.
+              client.println("<link rel=\"icon\" href=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%95%B9</text></svg>\">");
               // CSS for the buttons - feel free to change background color and font size to your liking
               client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
               client.println(".button { border: yes; color: white; padding: 10px 40px; width: 100%;");
@@ -465,7 +469,7 @@ void webInterface()
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
-              case Automatik_Modus_Menu:
+              case AutoMode_Menu:
                 client.println("<h2>Automatic Mode</h2>");
 
                 valueString = String(TimeAuto, DEC);
@@ -510,7 +514,7 @@ void webInterface()
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
-              case Einstellung_Menu:
+              case Settings_Menu:
               {
                 client.println("<h2>Settings</h2>");
 

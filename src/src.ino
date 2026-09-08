@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.31"; // Software revision.
+char codeVersion[] = "0.34"; // Software revision.
 
 //
 // =======================================================================================================
@@ -139,7 +139,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 // Full rotation range in degrees per servo channel (e.g. 90/180/360), appended after the block above
 #define adr_eprom_SERVO_DEGREES(ch) (SERVO_CHANNEL_DATA_END + (ch)*4)
 
-// EEPROM Speicher der Einstellungen
+// EEPROM storage for settings
 int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
 enum WifiModeEnum
 {
@@ -277,40 +277,41 @@ float batteryChargePercentage; // Akkuspannung in Prozent
 
 // Menüstruktur
 /*
- * 1 = Servotester_Auswahl       Auswahl -> 51 Servotester_Menu
- * 2 = Automatik_Modus_Auswahl   Auswahl -> 52 Automatik_Modus_Menu
- * 3 = Impuls_lesen_Auswahl      Auswahl -> 53 Impuls_lesen_Menu
- * 4 = Multiswitch_lesen_Auswahl Auswahl -> 54 Multiswitch_lesen_Menu
- * 5 = SBUS_lesen_Auswahl        Auswahl -> 55 SBUS_lesen_Menu
- * 6 = Einstellung_Auswahl       Auswahl -> 56 Einstellung_Menu
- * 9 = Info_Auswahl              Auswahl -> 59 Info_Menu
- * 10 = Joystick_Auswahl         Auswahl -> 60 Joystick_Menu
+ * 1 = Servotester_Select       Selection -> 51 Servotester_Menu
+ * 2 = AutoMode_Select   Selection -> 52 AutoMode_Menu
+ * 3 = ReadPulse_Select      Selection -> 53 ReadPulse_Menu
+ * 4 = ReadMultiswitch_Select Selection -> 54 ReadMultiswitch_Menu
+ * 5 = ReadSbus_Select        Selection -> 55 ReadSbus_Menu
+ * 6 = ReadIbus_Select        Selection -> 56 ReadIbus_Menu
+ * 7 = Info_Select              Selection -> 57 Info_Menu (3 pages, left/right to page through: Controls, Wifi, Firmware)
+ * 8 = Joystick_Select          Selection -> 60 Joystick_Menu
+ * 9 = Oscilloscope_Select      Selection -> 61 Oscilloscope_Menu
+ * 10 = SignalGenerator_Select  Selection -> 62 SignalGenerator_Menu
+ * 11 = Settings_Select      Selection -> 58 Settings_Menu (last item)
  * etc.
  */
 enum
 {
-  Servotester_Auswahl = 1,
-  Automatik_Modus_Auswahl = 2,
-  Impuls_lesen_Auswahl = 3,
-  Multiswitch_lesen_Auswahl = 4,
-  SBUS_lesen_Auswahl = 5,
-  IBUS_lesen_Auswahl = 6,
-  WifiInfo_Auswahl = 7,
-  Einstellung_Auswahl = 8,
-  Info_Auswahl = 9,
-  Joystick_Auswahl = 10,
-  Oscilloscope_Auswahl = 11,
-  SignalGenerator_Auswahl = 12,
+  Servotester_Select = 1,
+  AutoMode_Select = 2,
+  ReadPulse_Select = 3,
+  ReadMultiswitch_Select = 4,
+  ReadSbus_Select = 5,
+  ReadIbus_Select = 6,
+  Info_Select = 7,
+  Joystick_Select = 8,
+  Oscilloscope_Select = 9,
+  SignalGenerator_Select = 10,
+  Settings_Select = 11,
   //
   Servotester_Menu = 51,
-  Automatik_Modus_Menu = 52,
-  Impuls_lesen_Menu = 53,
-  Multiswitch_lesen_Menu = 54,
-  SBUS_lesen_Menu = 55,
-  IBUS_lesen_Menu = 56,
-  WifiInfo_Menu = 57,
-  Einstellung_Menu = 58,
-  Info_Menu = 59,
+  AutoMode_Menu = 52,
+  ReadPulse_Menu = 53,
+  ReadMultiswitch_Menu = 54,
+  ReadSbus_Menu = 55,
+  ReadIbus_Menu = 56,
+  Info_Menu = 57,
+  Settings_Menu = 58,
   Joystick_Menu = 60,
   Oscilloscope_Menu = 61,
   SignalGenerator_Menu = 62
@@ -321,8 +322,8 @@ int Autopos[5];      // Speicher
 bool Auto_Pause = 0; // Pause im Auto Modus
 
 //-Menu 53 Impuls lesen
-int Impuls_min = 1000;
-int Impuls_max = 2000;
+int PulseMin = 1000;
+int PulseMax = 2000;
 int pwmFreq = 0;
 
 //-Menu 54 Multiwitch Futaba lesen
@@ -330,10 +331,11 @@ int pwmFreq = 0;
 int value1[kanaele]; // Speicher Multiswitch Werte
 
 //-Menu
-int Menu = Servotester_Auswahl; // Aktives Menu
-bool SetupMenu = false;         // Zustand Setupmenu
-int Einstellung = 0;            // Aktives Einstellungsmenu
-bool Edit = false;              // Einstellungen ausgewählt
+int Menu = Servotester_Select; // Active menu
+bool SetupMenu = false;         // Setup-menu state
+int SettingsItem = 0;            // Active settings item
+int InfoPage = 0;               // Which page of the Info menu is shown (0=Wifi, 1=Controls, 2=Firmware)
+bool Edit = false;              // Settings item selected for editing
 
 // Battery voltage
 ESP32AnalogRead battery;
@@ -1047,22 +1049,15 @@ void ButtonRead()
 // =======================================================================================================
 // MENU
 // =======================================================================================================
+// (see the menu structure comment above the enum definition for the full list)
 //
-/*
- * 1 = Servotester       Auswahl -> 10 Servotester
- * 2 = Automatik Modus   Auswahl -> 20 Automatik Modus
- * 3 = Impuls lesen      Auswahl -> 30 Impuls lesen
- * 4 = Multiswitch lesen Auswahl -> 40 Multiswitch lesen
- * 5 = SBUS lesen        Auswahl -> 50 SBUS lesen
- * 6 = Einstellung       Auswahl -> 60 Einstellung
- */
 void MenuUpdate()
 {
 
   switch (Menu)
   {
-    // Servotester Auswahl *********************************************************
-  case Servotester_Auswahl:
+    // Servotester Selection *********************************************************
+  case Servotester_Select:
     servoModes();   // Refresh servo operation mode
     batteryVolts(); // Read battery voltage
     display.clear();
@@ -1095,7 +1090,7 @@ void MenuUpdate()
 
     if (encoderState == 1)
     {
-      Menu = Servotester_Auswahl;
+      Menu = Servotester_Select;
     }
     if (encoderState == 2)
     {
@@ -1108,8 +1103,8 @@ void MenuUpdate()
     }
     break;
 
-    // Automatikmodus Auswahl *********************************************************
-  case Automatik_Modus_Auswahl:
+    // Auto Mode Selection *********************************************************
+  case AutoMode_Select:
     servoModes(); // Refresh servo operation mode
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
@@ -1132,12 +1127,12 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = Automatik_Modus_Menu;
+      Menu = AutoMode_Menu;
     }
     break;
 
-  // Impuls lesen Auswahl *********************************************************
-  case Impuls_lesen_Auswahl:
+  // Read Pulse Selection *********************************************************
+  case ReadPulse_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1159,12 +1154,12 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = Impuls_lesen_Menu;
+      Menu = ReadPulse_Menu;
     }
     break;
 
-  // Multiswitch lesen Auswahl *********************************************************
-  case Multiswitch_lesen_Auswahl:
+  // Read Multiswitch Selection *********************************************************
+  case ReadMultiswitch_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1186,12 +1181,12 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = Multiswitch_lesen_Menu;
+      Menu = ReadMultiswitch_Menu;
     }
     break;
 
-  // SBUS lesen Auswahl *********************************************************
-  case SBUS_lesen_Auswahl:
+  // Read SBUS Selection *********************************************************
+  case ReadSbus_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1213,12 +1208,12 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = SBUS_lesen_Menu;
+      Menu = ReadSbus_Menu;
     }
     break;
 
-  // IBUS lesen Auswahl *********************************************************
-  case IBUS_lesen_Auswahl:
+  // Read IBUS Selection *********************************************************
+  case ReadIbus_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1240,67 +1235,12 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = IBUS_lesen_Menu;
+      Menu = ReadIbus_Menu;
     }
     break;
 
-    // Wifi Info Auswahl *********************************************************
-  case WifiInfo_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, wifiInfoString[LANGUAGE]);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, WIFI_ON == 1 ? onString[LANGUAGE] : offString[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = WifiInfo_Menu;
-    }
-    break;
-
-  // Einstellung Auswahl *********************************************************
-  case Einstellung_Auswahl:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, settingsString[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Einstellung_Menu;
-      Einstellung = 7; // Pre select Servo frequency setting
-    }
-    break;
-
-  // Info Auswahl *********************************************************
-  case Info_Auswahl:
+  // Info Selection *********************************************************
+  case Info_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1325,8 +1265,8 @@ void MenuUpdate()
     }
     break;
 
-  // Joystick Auswahl *********************************************************
-  case Joystick_Auswahl:
+  // Joystick Selection *********************************************************
+  case Joystick_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1351,8 +1291,8 @@ void MenuUpdate()
     }
     break;
 
-    // Oscilloscope Auswahl *********************************************************
-  case Oscilloscope_Auswahl:
+    // Oscilloscope Selection *********************************************************
+  case Oscilloscope_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
@@ -1379,12 +1319,12 @@ void MenuUpdate()
     }
     break;
 
-    // Signal Generator Auswahl *********************************************************
-  case SignalGenerator_Auswahl:
+    // Signal Generator Selection *********************************************************
+  case SignalGenerator_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu  ");
+    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
     display.setFont(ArialMT_Plain_10);
@@ -1398,12 +1338,39 @@ void MenuUpdate()
     }
     if (encoderState == 2)
     {
-      Menu = SignalGenerator_Auswahl;
+      Menu++;
     }
 
     if (buttonState == 2)
     {
       Menu = SignalGenerator_Menu;
+    }
+    break;
+
+  // Settings Selection (last item in the list) *********************************************************
+  case Settings_Select:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu  ");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, settingsString[LANGUAGE]);
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu = Settings_Select;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Settings_Menu;
+      SettingsItem = 7; // Pre select Servo frequency setting
     }
     break;
 
@@ -1471,7 +1438,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = Servotester_Auswahl;
+      Menu = Servotester_Select;
       SetupMenu = false;
       selectedServo = 0;
     }
@@ -1493,7 +1460,7 @@ void MenuUpdate()
     break;
 
   // Automatik Modus *********************************************************
-  case Automatik_Modus_Menu:
+  case AutoMode_Menu:
     servoModes(); // Refresh servo operation mode for the currently selected channel
     static unsigned long autoMenuMillis;
     int autoChange;
@@ -1613,7 +1580,7 @@ void MenuUpdate()
 
     if (buttonState == 1) // Long press = back
     {
-      Menu = Automatik_Modus_Auswahl;
+      Menu = AutoMode_Select;
       SetupMenu = false;
       selectedServo = 0;
     }
@@ -1635,7 +1602,7 @@ void MenuUpdate()
     break;
 
   // PWM Impuls lesen *********************************************************
-  case Impuls_lesen_Menu:
+  case ReadPulse_Menu:
 
     bool parameterSet; // See servoModes.h
 
@@ -1655,20 +1622,20 @@ void MenuUpdate()
     // Switch progress bar range
     if (servo_pos[selectedServo] > 750) // Normal pulsewidth range
     {
-      Impuls_min = SERVO_MIN_STD[selectedServo];
-      Impuls_max = SERVO_MAX_STD[selectedServo];
+      PulseMin = SERVO_MIN_STD[selectedServo];
+      PulseMax = SERVO_MAX_STD[selectedServo];
     }
     else // Sanwa pulsewidth range
     {
-      Impuls_min = SERVO_MIN_SANWA[selectedServo];
-      Impuls_max = SERVO_MAX_SANWA[selectedServo];
+      PulseMin = SERVO_MIN_SANWA[selectedServo];
+      PulseMax = SERVO_MAX_SANWA[selectedServo];
     }
 
     // Enlarge range, if required
-    if (servo_pos[selectedServo] > Impuls_max)
-      Impuls_max = servo_pos[selectedServo];
-    if (servo_pos[selectedServo] < Impuls_min)
-      Impuls_min = servo_pos[selectedServo];
+    if (servo_pos[selectedServo] > PulseMax)
+      PulseMax = servo_pos[selectedServo];
+    if (servo_pos[selectedServo] < PulseMin)
+      PulseMin = servo_pos[selectedServo];
 
     static unsigned long pwmMenuMillis;
     if (millis() - pwmMenuMillis > 100)
@@ -1688,7 +1655,7 @@ void MenuUpdate()
 
       if (pwmFreq > 1) // Only show progress bar, if we have a signal
       {
-        display.drawProgressBar(8, 50, 112, 10, (Impuls_max != Impuls_min ? (((servo_pos[selectedServo] - Impuls_min) * 100) / (Impuls_max - Impuls_min)) : 50));
+        display.drawProgressBar(8, 50, 112, 10, (PulseMax != PulseMin ? (((servo_pos[selectedServo] - PulseMin) * 100) / (PulseMax - PulseMin)) : 50));
       }
       else
       {
@@ -1720,7 +1687,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = Impuls_lesen_Auswahl;
+      Menu = ReadPulse_Select;
       SetupMenu = false;
       selectedServo = 0;
     }
@@ -1728,7 +1695,7 @@ void MenuUpdate()
 
   // Multiswitch lesen *********************************************************
   https: // www.modelltruck.net/showthread.php?54795-Futaba-Robbe-Multiswitch-Decoder-mit-Arduino
-  case Multiswitch_lesen_Menu:
+  case ReadMultiswitch_Menu:
     static unsigned long multiswitchMenuMillis;
     if (millis() - multiswitchMenuMillis > 20)
     { // Every 20ms (slow screen refresh down)
@@ -1765,14 +1732,14 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = Multiswitch_lesen_Auswahl;
+      Menu = ReadMultiswitch_Select;
       SetupMenu = false;
     }
 
     break;
 
   // SBUS lesen *********************************************************
-  case SBUS_lesen_Menu:
+  case ReadSbus_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.setFont(ArialMT_Plain_10);
@@ -1814,13 +1781,13 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = SBUS_lesen_Auswahl;
+      Menu = ReadSbus_Select;
       SetupMenu = false;
     }
     break;
 
   // IBUS lesen *********************************************************
-  case IBUS_lesen_Menu:
+  case ReadIbus_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
     display.setFont(ArialMT_Plain_10);
@@ -1860,62 +1827,76 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = IBUS_lesen_Auswahl;
+      Menu = ReadIbus_Select;
       SetupMenu = false;
     }
     break;
 
-  // Wifi Info *********************************************************
-  case WifiInfo_Menu:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_10);
-    if (WIFI_ON == 1)
-    {
-      if (WIFI_MODE == WIFI_STATION_MODE && !wifiStaFallback)
-      {
-        display.drawString(64, 0, "Wifi: Station");
-        display.drawString(64, 14, "SSID: " + STA_SSID);
-        display.drawString(64, 28, ipAddressString[LANGUAGE] + " " + wifiIpString);
-        display.drawString(64, 42, "servotester.local");
-      }
-      else
-      {
-        display.drawString(64, 0, wifiStaFallback ? "Wifi: AP (fallback)" : ("Wifi: " + onString[LANGUAGE]));
-        display.drawString(64, 14, "SSID: " + String(ssid));
-        display.drawString(64, 28, passwordString[LANGUAGE] + " " + String(password));
-        display.drawString(64, 42, ipAddressString[LANGUAGE] + " " + wifiIpString);
-      }
-    }
-    else
-    {
-      display.setFont(ArialMT_Plain_16);
-      display.drawString(64, 25, "Wifi");
-      display.drawString(64, 45, offString[LANGUAGE]);
-    }
-    display.display();
-
-    if (buttonState == 1)
-    {
-      Menu = WifiInfo_Auswahl;
-    }
-    break;
-
-  // Info *********************************************************
+  // Info - 3 pages, left/right to page through: Wifi, Controls, Firmware *********************
   case Info_Menu:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 0, "Firmware source:");
-    display.drawString(64, 12, "github.com/");
-    display.drawString(64, 22, "MichielBruijn/");
-    display.drawString(64, 32, "esp32-servo-tester");
-    display.drawString(64, 48, "v" + String(codeVersion));
+
+    switch (InfoPage)
+    {
+    case 0: // Wifi
+      if (WIFI_ON == 1)
+      {
+        if (WIFI_MODE == WIFI_STATION_MODE && !wifiStaFallback)
+        {
+          display.drawString(64, 0, "Wifi: Station");
+          display.drawString(64, 14, "SSID: " + STA_SSID);
+          display.drawString(64, 28, ipAddressString[LANGUAGE] + " " + wifiIpString);
+          display.drawString(64, 42, "servotester.local");
+        }
+        else
+        {
+          display.drawString(64, 0, wifiStaFallback ? "Wifi: AP (fallback)" : ("Wifi: " + onString[LANGUAGE]));
+          display.drawString(64, 14, "SSID: " + String(ssid));
+          display.drawString(64, 28, passwordString[LANGUAGE] + " " + String(password));
+          display.drawString(64, 42, ipAddressString[LANGUAGE] + " " + wifiIpString);
+        }
+      }
+      else
+      {
+        display.setFont(ArialMT_Plain_16);
+        display.drawString(64, 25, "Wifi");
+        display.drawString(64, 45, offString[LANGUAGE]);
+      }
+      break;
+    case 1: // Controls - same content as the boot help screen
+      display.setTextAlignment(TEXT_ALIGN_LEFT);
+      display.drawString(0, 0, operationString[LANGUAGE]);
+      display.drawString(0, 12, shortPressString[LANGUAGE]);
+      display.drawString(0, 24, longPressString[LANGUAGE]);
+      display.drawString(0, 36, doubleclickString[LANGUAGE]);
+      display.drawString(0, 48, RotateKnobString[LANGUAGE]);
+      break;
+    case 2: // Firmware
+      display.drawString(64, 0, "Firmware source:");
+      display.drawString(64, 12, "github.com/");
+      display.drawString(64, 22, "MichielBruijn/");
+      display.drawString(64, 32, "esp32-servo-tester");
+      display.drawString(64, 48, "v" + String(codeVersion));
+      break;
+    }
     display.display();
+
+    if (encoderState == 1)
+    {
+      InfoPage--;
+    }
+    if (encoderState == 2)
+    {
+      InfoPage++;
+    }
+    InfoPage = constrain(InfoPage, 0, 2);
 
     if (buttonState == 1)
     {
-      Menu = Info_Auswahl;
+      Menu = Info_Select;
+      InfoPage = 0;
     }
     break;
 
@@ -2005,7 +1986,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = Joystick_Auswahl;
+      Menu = Joystick_Select;
       SetupMenu = false;
     }
     break;
@@ -2027,7 +2008,7 @@ void MenuUpdate()
 
     if (buttonState == 1) // Back
     {
-      Menu = Oscilloscope_Auswahl;
+      Menu = Oscilloscope_Select;
       SetupMenu = false;
     }
     break;
@@ -2048,20 +2029,20 @@ void MenuUpdate()
 
     if (buttonState == 1) // Back
     {
-      Menu = SignalGenerator_Auswahl;
+      Menu = SignalGenerator_Select;
       SetupMenu = false;
     }
     break;
 
-  // Einstellung *********************************************************
-  case Einstellung_Menu:
+  // SettingsItem *********************************************************
+  case Settings_Menu:
     batteryVolts(); // Read battery voltage
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_10);
     display.drawString(64, 0, settingsString[LANGUAGE]);
     display.setFont(ArialMT_Plain_16);
-    switch (Einstellung)
+    switch (SettingsItem)
     {
     case 0:
       display.drawString(64, 25, "Wifi");
@@ -2204,11 +2185,11 @@ void MenuUpdate()
     {
       if (!Edit)
       {
-        Einstellung--;
+        SettingsItem--;
       }
       else
       {
-        switch (Einstellung)
+        switch (SettingsItem)
         {
         case 0:
           WIFI_ON--;
@@ -2273,11 +2254,11 @@ void MenuUpdate()
     {
       if (!Edit)
       {
-        Einstellung++;
+        SettingsItem++;
       }
       else
       {
-        switch (Einstellung)
+        switch (SettingsItem)
         {
         case 0:
           WIFI_ON++;
@@ -2340,13 +2321,13 @@ void MenuUpdate()
     }
 
     // Menu range -------------------------------------
-    if (Einstellung > 14)
+    if (SettingsItem > 14)
     {
-      Einstellung = 0;
+      SettingsItem = 0;
     }
-    else if (Einstellung < 0)
+    else if (SettingsItem < 0)
     {
-      Einstellung = 14;
+      SettingsItem = 14;
     }
 
     // Limits -----------------------------------------
@@ -2432,7 +2413,7 @@ void MenuUpdate()
     // Buttons ---------------------------------------
     if (buttonState == 1)
     {
-      Menu = Einstellung_Auswahl;
+      Menu = Settings_Select;
       SetupMenu = false;
     }
 
@@ -2474,7 +2455,7 @@ void MenuUpdate()
   default:
     // Tue etwas, im Defaultfall
     // Dieser Fall ist optional
-    Menu = Servotester_Auswahl;
+    Menu = Servotester_Select;
     break; // Wird nicht benötigt, wenn Statement(s) vorhanden sind
   }
 }

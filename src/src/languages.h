@@ -3,7 +3,7 @@
 
 int noOfLanguages = 2; // 0 = English, 1 = Deutsch, 2 = Francais - LANGUAGE is fixed at 0 (English), kept as a bounds check only
 
-// Einstellung
+// Settings
 String settingsString[]{"Settings", "Einstellung", "Paramètres"};
 String onString[]{"On", "Ein", "activé"};
 String offString[]{"Off", "Aus", "désactivé"};
@@ -27,10 +27,10 @@ String speedCurveString[] {"Speed Curve", "Geschw. Kurve", "Courbe vitesse"};
 String impulseString[] {"Impulse", "Impuls", "Impulsion"};
 String impulseSignalString[] {"No signal", "Kein Signal", "Pas de signal"};
 
-// Automatik
+// Automatic mode
 String delayString[] {"Delay", "Verz.", "Ret."};
 
-// Auswahl
+// Selection screens
 String servotesterString[] {"Servotester", "Servotester", "Testeur de servos"};
 String readIbusString[] {"Read IBUS", "IBUS lesen", "Lire IBUS"};
 String readSbusString[] {"Read SBUS", "SBUS lesen", "Lire SBUS"};
@@ -39,7 +39,6 @@ String readCh1Ch5String[] {"read CH1 - 5", "lesen CH1 - 5", "lire CH1 - 5"};
 String PwmImpulseString[] {"PWM Impulse", "PWM Impuls", "PWM Impulsion"};
 String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat."};
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
-String wifiInfoString[] {"Wifi Info", "Wifi Info", "Info Wifi"};
 String readOscilloscopeString[] {"Oscilloscope", "Oszilloskop", "Oscilloscope"};
 String readOscilloscopeString2[] {"0-3.3V, GPIO 39", "0-3.3V, GPIO 39", "0-3.3V, GPIO 39"};
 String signalGeneratorString[] {"Signal Generator", "Signal Generator", "Générat. de signal"};
