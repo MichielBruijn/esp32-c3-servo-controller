@@ -477,7 +477,7 @@ void webInterface()
                   client.println(".arcadeTrack{position:absolute;background:#d3d3d3;border-radius:18px;touch-action:none;user-select:none;}");
                   client.println("#trackSteer{left:0;right:0;top:50%;height:88px;margin-top:-44px;}");
                   client.println("#trackThrottle{top:0;bottom:0;right:8px;width:88px;}");
-                  client.println(".arcadeThumb{position:absolute;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
+                  client.println(".arcadeThumb{position:absolute;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
                   client.println("#thumbSteer{top:50%;left:50%;margin-top:-30px;margin-left:-30px;}");
                   client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-30px;margin-bottom:-30px;}");
                   client.println(".arcadeLabelL,.arcadeLabelR{position:absolute;top:50%;transform:translateY(-50%);font-size:15px;font-weight:bold;color:#555;}");
@@ -495,15 +495,19 @@ void webInterface()
                   client.println("<script>");
                   client.println("function makeArcadeSlider(trackId, thumbId, horizontal, ch, min, center, max) {");
                   client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId);");
-                  client.println("  var dragging = false, lastSent = 0, rect = null, pendingVal = center, rafScheduled = false;");
+                  client.println("  var dragging = false, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
                   client.println("  function valueFromPointer(e) {"); // Uses the rect cached once in onStart, not re-measured every move - re-measuring forces a layout reflow on every event, which is what made a second simultaneous drag stutter
                   client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
                   client.println("    frac = Math.max(0, Math.min(1, frac));");
                   client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
                   client.println("  }");
                   client.println("  function setThumb(val) {");
+                  // transform:translate() is compositor-only (no layout/paint), unlike left/bottom which force a
+                  // reflow on every change - with 2 thumbs animating at once that reflow cost was the real stutter.
+                  // Thumb's base CSS position is already centered on the track, so this is just the pixel offset from there.
                   client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
-                  client.println("    if (horizontal) { thumb.style.left = (frac * 100) + '%'; } else { thumb.style.bottom = (frac * 100) + '%'; }");
+                  client.println("    var offset = (frac - 0.5) * (horizontal ? rect.width : rect.height);");
+                  client.println("    thumb.style.transform = horizontal ? ('translateX(' + offset + 'px)') : ('translateY(' + (-offset) + 'px)');");
                   client.println("  }");
                   client.println("  function applyFrame() {"); // Runs at most once per screen paint, decoupled from raw touch-event frequency
                   client.println("    rafScheduled = false;");
