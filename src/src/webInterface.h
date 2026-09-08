@@ -651,7 +651,11 @@ void webInterface()
                   client.println("<p><h3>Servo " + String(ch + 1) + " Microseconds: <span id=\"textServo" + String(ch) + "SliderValue\">" + valueString + "</span>");
                   client.println("<button class=\"button button1\" onclick=\"centerServo" + String(ch) + "()\">Center</button></p>");
 
-                  client.println("<input type=\"range\" min=\"" + String(chMin, DEC) + "\" max=\"" + String(chMax, DEC) + "\" step=\"10\" class=\"slider\" id=\"Servo" + String(ch) + "Slider\" oninput=\"Servo" + String(ch) + "Speed(this.value)\" value=\"" + valueString + "\" /></p>");
+                  client.println("<p style=\"display:flex;align-items:center;gap:8px;\">");
+                  client.println("<button class=\"button button3\" style=\"width:15%;padding:10px 0;margin:0;\" onclick=\"nudgeServo" + String(ch) + "(-1)\">-</button>");
+                  client.println("<input type=\"range\" min=\"" + String(chMin, DEC) + "\" max=\"" + String(chMax, DEC) + "\" step=\"10\" class=\"slider\" style=\"flex:1;width:auto;\" id=\"Servo" + String(ch) + "Slider\" oninput=\"Servo" + String(ch) + "Speed(this.value)\" value=\"" + valueString + "\" />");
+                  client.println("<button class=\"button button3\" style=\"width:15%;padding:10px 0;margin:0;\" onclick=\"nudgeServo" + String(ch) + "(1)\">+</button>");
+                  client.println("</p>");
 
                   client.println("<script> function Servo" + String(ch) + "Speed(pos) { ");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
@@ -663,6 +667,17 @@ void webInterface()
                   client.println("function centerServo" + String(ch) + "() {");
                   client.println("document.getElementById(\"Servo" + String(ch) + "Slider\").value = " + String(chCenterVal) + ";");
                   client.println("Servo" + String(ch) + "Speed(" + String(chCenterVal) + ");");
+                  client.println("}");
+                  // +/- buttons: the slider itself only moves in 10us steps (touch/mouse-drag
+                  // granularity) - these nudge by exactly 1us for fine-tuning, clamped to the
+                  // slider's own min/max.
+                  client.println("function nudgeServo" + String(ch) + "(delta) {");
+                  client.println("var s = document.getElementById(\"Servo" + String(ch) + "Slider\");");
+                  client.println("var v = parseInt(s.value) + delta;");
+                  client.println("var lo = parseInt(s.min), hi = parseInt(s.max);");
+                  client.println("if (v < lo) v = lo; if (v > hi) v = hi;");
+                  client.println("s.value = v;");
+                  client.println("Servo" + String(ch) + "Speed(v);");
                   client.println("} </script>");
                 }
 
