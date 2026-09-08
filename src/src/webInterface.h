@@ -718,6 +718,17 @@ void webInterface()
               case AutoMode_Menu:
                 client.println("<h2>Sweep Mode</h2>");
 
+                // Channel selector - Sweep Mode only oscillates one channel (selectedServo) at a
+                // time, same as the OLED's double-click shortcut, but there was no way to change
+                // it from this page itself before (only via Settings).
+                client.println("<p><h3>Servo Channel</h3>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  String activeClass = (ch == selectedServo) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?Ch=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
+
                 valueString = String(TimeAuto, DEC);
 
                 client.println("<p><h3>Servo Speed: <span id=\"textServoSpeedValue\">" + valueString + "</span>");
