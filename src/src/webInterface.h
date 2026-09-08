@@ -197,7 +197,8 @@ void webInterface()
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
-                SERVO_MODE = constrain(valueString.toInt(), (int)STD, (int)SXR);
+                // Written straight into the timer group's array, same reason as Max/Min/Center above
+                SERVO_MODE_PER_GROUP[servoTimerGroup(selectedServo)] = constrain(valueString.toInt(), (int)STD, (int)SXR);
               }
               if (header.indexOf("GET /?Power=") >= 0)
               {
@@ -436,8 +437,10 @@ void webInterface()
 
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
-                  int chMin = inStdMode ? SERVO_MIN_STD[ch] : SERVO_MIN_SANWA[ch];
-                  int chMax = inStdMode ? SERVO_MAX_STD[ch] : SERVO_MAX_SANWA[ch];
+                  int chMode = SERVO_MODE_PER_GROUP[servoTimerGroup(ch)];
+                  bool chInStdMode = (chMode == STD || chMode == NOR || chMode == SHR);
+                  int chMin = chInStdMode ? SERVO_MIN_STD[ch] : SERVO_MIN_SANWA[ch];
+                  int chMax = chInStdMode ? SERVO_MAX_STD[ch] : SERVO_MAX_SANWA[ch];
                   int chCenterVal = servoCenterForChannel(ch);
                   valueString = String(servo_pos[ch], DEC);
 
@@ -491,10 +494,14 @@ void webInterface()
                 // joystick has actually produced so far this session (widens as you move the stick
                 // to each extreme - if it never gets close to 0/4095, that's the pot's real limit).
                 {
-                  int diagXMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
-                  int diagXMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
-                  int diagYMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
-                  int diagYMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+                  int diagXMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
+                  int diagYMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+                  bool diagXInStdMode = (diagXMode == STD || diagXMode == NOR || diagXMode == SHR);
+                  bool diagYInStdMode = (diagYMode == STD || diagYMode == NOR || diagYMode == SHR);
+                  int diagXMin = diagXInStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
+                  int diagXMax = diagXInStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
+                  int diagYMin = diagYInStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
+                  int diagYMax = diagYInStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
                   client.println("<p>Calibrated CH" + String(JOYSTICK_X_CHANNEL + 1) + " range: " + String(diagXMin) + "-" + String(diagXMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_X_CHANNEL)) + ")</p>");
                   client.println("<p>Calibrated CH" + String(JOYSTICK_Y_CHANNEL + 1) + " range: " + String(diagYMin) + "-" + String(diagYMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_Y_CHANNEL)) + ")</p>");
                   client.println("<p>Learned raw ADC range - X: " + String(joystickXRawMin) + "-" + String(joystickXRawMax) + " / Y: " + String(joystickYRawMin) + "-" + String(joystickYRawMax) + " (0-4095 max, 2048 = center)</p>");

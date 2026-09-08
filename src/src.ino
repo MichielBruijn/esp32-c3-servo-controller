@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.28"; // Software revision.
+char codeVersion[] = "0.30"; // Software revision.
 
 //
 // =======================================================================================================
@@ -105,18 +105,20 @@ using namespace std;
 #define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * 24) // 24 bytes (6 ints) per servo channel
 #define WIFI_STA_DATA_START (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
 #define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
-#define EEPROM_SIZE (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
+#define SERVO_MODE_GROUP_DATA_START (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
+#define EEPROM_SIZE (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 5         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 6         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
 #define adr_eprom_JOYSTICK_Y_CHANNEL (JOYSTICK_DATA_START + 4)
+#define adr_eprom_SERVO_MODE_GROUP(g) (SERVO_MODE_GROUP_DATA_START + (g)*4)
 #define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
 #define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
@@ -125,7 +127,7 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_ENCODER_INVERTED 32   // Encoder inverted
 #define adr_eprom_LANGUAGE 36           // Gewählte Sprache
 #define adr_eprom_SPEED_CURVE 40        // Encoder speed curve exponent x10 (reused from the old removed PONG_BALL_RATE address)
-#define adr_eprom_SERVO_MODE 44         // Servo operation mode
+#define adr_eprom_SERVO_MODE 44         // Old single shared mode value, read only once during the layout-version-6 migration
 
 // SERVO µs Max/Min/Center per servo channel (0-4), Standard and Sanwa mode groups, 24 bytes (6 ints) per channel
 #define adr_eprom_SERVO_MAX_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 0)
@@ -164,7 +166,18 @@ int SBUS_INVERTED;      // SBUS inverted
 int ENCODER_INVERTED;   // Encoder inverted
 int LANGUAGE;           // Gewählte Sprache
 int SPEED_CURVE;        // Encoder speed curve exponent x10 (e.g. 19 = 1.9)
-int SERVO_MODE;         // New servo parameters starting here
+int SERVO_MODE;         // Legacy scalar: always refreshed to reflect selectedServo's own group (see servoModes())
+#define NUM_SERVO_TIMER_GROUPS 3 // ESP32 MCPWM only has 3 independent timers for 5 channels: {CH1,CH2}, {CH3,CH4}, {CH5}
+int SERVO_MODE_PER_GROUP[NUM_SERVO_TIMER_GROUPS]; // Mode (and therefore Hz) is stored per timer group, not per channel - channels sharing a timer physically can't run different Hz at once
+// Which timer group a channel belongs to (0-indexed channel number in, 0-2 group index out)
+uint8_t servoTimerGroup(uint8_t ch)
+{
+  if (ch <= 1)
+    return 0; // Servo 1+2 - MCPWM_UNIT_0/TIMER_0
+  if (ch <= 3)
+    return 1; // Servo 3+4 - MCPWM_UNIT_0/TIMER_1
+  return 2;   // Servo 5   - MCPWM_UNIT_1/TIMER_0 (the only channel with a genuinely independent timer)
+}
 int SERVO_MAX_STD[NUM_SERVO_CHANNELS];      // SERVO µs Max Wert im Servotester Modus (Standard), pro Kanal
 int SERVO_MIN_STD[NUM_SERVO_CHANNELS];      // SERVO µs Min Wert im Servotester Modus (Standard), pro Kanal
 int SERVO_CENTER_STD[NUM_SERVO_CHANNELS];   // SERVO µs Mitte Wert im Servotester Modus (Standard), pro Kanal
@@ -538,16 +551,20 @@ void setupMcpwm()
   mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM1B, SERVO_CONNECTOR_4); // Set winch  or beacon as PWM1B
 
   // 2. configure MCPWM parameters
+  // Each timer group has its own stored mode/Hz (see SERVO_MODE_PER_GROUP) - Servo1+2 and Servo3+4
+  // physically share one timer each, so within a pair both channels always run at the same Hz;
+  // only Servo5 has a genuinely independent timer.
   mcpwm_config_t pwm_config;
-  pwm_config.frequency = SERVO_Hz; // frequency
+  pwm_config.frequency = servoHzForMode(SERVO_MODE_PER_GROUP[0]); // Servo 1+2
   pwm_config.cmpr_a = 0;           // duty cycle of PWMxa = 0
   pwm_config.cmpr_b = 0;           // duty cycle of PWMxb = 0
   pwm_config.counter_mode = MCPWM_UP_COUNTER;
   pwm_config.duty_mode = MCPWM_DUTY_MODE_0; // 0 = not inverted, 1 = inverted
-
-  // 3. configure channels with settings above
   mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &pwm_config); // Configure PWM0A & PWM0B
-  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_1, &pwm_config); // Configure PWM1A & PWM1B
+
+  mcpwm_config_t pwm_config2 = pwm_config;
+  pwm_config2.frequency = servoHzForMode(SERVO_MODE_PER_GROUP[1]); // Servo 3+4
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_1, &pwm_config2); // Configure PWM1A & PWM1B
 
   // Unit 1 ---------------------------------------------------------------------
   // 1. set our servo 5 output pin
@@ -555,7 +572,7 @@ void setupMcpwm()
 
   // 2. configure MCPWM parameters
   mcpwm_config_t pwm_config1;
-  pwm_config1.frequency = SERVO_Hz; // frequency
+  pwm_config1.frequency = servoHzForMode(SERVO_MODE_PER_GROUP[2]); // Servo 5, independent timer
   pwm_config1.cmpr_a = 0;           // duty cycle of PWMxa = 0
   pwm_config1.cmpr_b = 0;           // duty cycle of PWMxb = 0
   pwm_config1.counter_mode = MCPWM_UP_COUNTER;
@@ -770,6 +787,7 @@ void setup()
   encoder.setFilter(1023);
   pinMode(BUTTON_PIN, INPUT_PULLUP); // BUTTON_PIN = Eingang
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP); // BOOT button, only read after boot completes - GPIO0's strapping role is over by then
+  pinMode(JOYSTICK_BUTTON_PIN, INPUT_PULLUP); // Read globally now (channel-change works from any menu), not just while inside Joystick_Menu
   joystickXRawMin = joystickXRawMax = joystickYRawMin = joystickYRawMax = JOYSTICK_ADC_CENTER;
   // 11dB is already this core's default (full 0-3.3V ADC range), set explicitly for certainty
   analogSetPinAttenuation(JOYSTICK_X_PIN, ADC_11db);
@@ -977,6 +995,25 @@ void ButtonRead()
     beepDuration = 10; // Same short beep as a normal button click
   }
   lastBootButtonState = bootButtonState;
+
+  // Joystick click button -------------------------------------------------------------------------
+  // Always changes channel too (same as the BOOT button), from any menu - including Joystick_Menu,
+  // where it does NOT affect the joystick's own X/Y channel mapping, only which channel is
+  // "selected" for when you leave the Joystick menu. Uses the "pew pew" sound instead of a plain
+  // beep so it stays a distinct, fun button in live mode.
+  static bool lastJoystickButtonState = HIGH;
+  static unsigned long joystickButtonMillis;
+  bool joystickButtonState = digitalRead(JOYSTICK_BUTTON_PIN);
+  if (joystickButtonState == LOW && lastJoystickButtonState == HIGH && millis() - joystickButtonMillis > bouncing)
+  {
+    joystickButtonMillis = millis();
+    selectedServo++;
+    if (selectedServo > NUM_SERVO_CHANNELS - 1)
+      selectedServo = 0;
+    encoderLedDuration = ENCODER_LED_FLASH_MS;
+    pewPewTrigger = true;
+  }
+  lastJoystickButtonState = joystickButtonState;
 }
 
 //
@@ -1831,11 +1868,15 @@ void MenuUpdate()
       SetupMenu = true;
     }
 
-    bool inStdMode = (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR);
-    int xMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
-    int xMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
-    int yMin = inStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
-    int yMax = inStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+    // Mode is per timer group now, so the X and Y channels may each be in a different mode family
+    int xMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
+    int yMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+    bool xInStdMode = (xMode == STD || xMode == NOR || xMode == SHR);
+    bool yInStdMode = (yMode == STD || yMode == NOR || yMode == SHR);
+    int xMin = xInStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
+    int xMax = xInStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
+    int yMin = yInStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
+    int yMax = yInStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
 
     // ESP32's ADC has a well-known channel "memory effect": switching to a new ADC1 channel right
     // after reading a different one can carry over some residual charge from the previous channel's
@@ -1876,20 +1917,8 @@ void MenuUpdate()
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_B, servo_pos[3]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[4]);
 
-    // Joystick click button: re-centers both mapped channels, and fires the "pew pew" laser sound
-    // (not a plain beep - both share the buzzer, and pew pew is the whole point of this button)
-    static bool lastJoystickButtonState = HIGH;
-    static unsigned long joystickButtonMillis;
-    bool joystickButtonState = digitalRead(JOYSTICK_BUTTON_PIN);
-    if (joystickButtonState == LOW && lastJoystickButtonState == HIGH && millis() - joystickButtonMillis > bouncing)
-    {
-      joystickButtonMillis = millis();
-      servo_pos[JOYSTICK_X_CHANNEL] = servoCenterForChannel(JOYSTICK_X_CHANNEL);
-      servo_pos[JOYSTICK_Y_CHANNEL] = servoCenterForChannel(JOYSTICK_Y_CHANNEL);
-      encoderLedDuration = ENCODER_LED_FLASH_MS;
-      pewPewTrigger = true;
-    }
-    lastJoystickButtonState = joystickButtonState;
+    // Joystick click button is now handled globally in ButtonRead() (always changes channel,
+    // same as the BOOT button) - no menu-specific handling here anymore.
 
     if (buttonState == 1)
     {
@@ -2424,7 +2453,10 @@ void eepromInit()
     ENCODER_INVERTED = 0;
     LANGUAGE = 0;
     SPEED_CURVE = 19;
-    SERVO_MODE = STD;
+    for (uint8_t g = 0; g < NUM_SERVO_TIMER_GROUPS; g++)
+    {
+      SERVO_MODE_PER_GROUP[g] = STD;
+    }
     for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
     {
       SERVO_MAX_STD[ch] = 2000;
@@ -2460,7 +2492,10 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
   EEPROM.writeInt(adr_eprom_LANGUAGE, LANGUAGE);
   EEPROM.writeInt(adr_eprom_SPEED_CURVE, SPEED_CURVE);
-  EEPROM.writeInt(adr_eprom_SERVO_MODE, SERVO_MODE);
+  for (uint8_t g = 0; g < NUM_SERVO_TIMER_GROUPS; g++)
+  {
+    EEPROM.writeInt(adr_eprom_SERVO_MODE_GROUP(g), SERVO_MODE_PER_GROUP[g]);
+  }
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
     EEPROM.writeInt(adr_eprom_SERVO_MAX_STD(ch), SERVO_MAX_STD[ch]);
@@ -2489,7 +2524,6 @@ void eepromRead()
   SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
   ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
   LANGUAGE = EEPROM.readInt(adr_eprom_LANGUAGE);
-  SERVO_MODE = EEPROM.readInt(adr_eprom_SERVO_MODE);
 
   // Freshly appended EEPROM bytes aren't reliably blank/zero, so a value range check alone can't tell
   // "never written" apart from "genuinely holds this value" - a layout version marker can.
@@ -2525,6 +2559,16 @@ void eepromRead()
   bool joystickFieldsNeedDefaulting = (storedLayoutVersion < 5);
   JOYSTICK_X_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
   JOYSTICK_Y_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 1 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+
+  // Mode (and Hz) used to be one single value shared by every channel, at the now-unused address 44.
+  // Split into one value per timer group at layout version 6 - seed all 3 groups from that old shared
+  // value on the upgrade boot, so existing servo behavior doesn't change, instead of resetting to Std.
+  bool modeFieldsNeedDefaulting = (storedLayoutVersion < 6);
+  int legacySharedMode = constrain(EEPROM.readInt(adr_eprom_SERVO_MODE), (int)STD, (int)SXR);
+  for (uint8_t g = 0; g < NUM_SERVO_TIMER_GROUPS; g++)
+  {
+    SERVO_MODE_PER_GROUP[g] = modeFieldsNeedDefaulting ? legacySharedMode : EEPROM.readInt(adr_eprom_SERVO_MODE_GROUP(g));
+  }
 
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
