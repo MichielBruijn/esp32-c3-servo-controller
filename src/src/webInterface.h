@@ -502,7 +502,7 @@ void webInterface()
 
                   client.println("function setupThrottleTrack(ch, min, center, max) {");
                   client.println("  var track = document.getElementById('throttleTrack'), thumb = document.getElementById('throttleThumb');");
-                  client.println("  var dragging = false, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
+                  client.println("  var dragging = false, activePointerId = null, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
                   client.println("  function valueFromPointer(e) {");
                   client.println("    var frac = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));");
                   client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
@@ -518,18 +518,30 @@ void webInterface()
                   client.println("    var now = Date.now();");
                   client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }");
                   client.println("  }");
+                  // No setPointerCapture() - grabbing steer (native input) first, then throttle
+                  // (this custom track) left steer completely unresponsive, order-dependent, which
+                  // pointed at a capture/native-input interaction bug rather than a hardware limit.
+                  // Tracking the pointer by ID on window instead avoids relying on capture semantics.
                   client.println("  function onMove(e) {");
-                  client.println("    if (!dragging) return;");
+                  client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
                   client.println("    pendingVal = valueFromPointer(e);");
                   client.println("    if (!rafScheduled) { rafScheduled = true; requestAnimationFrame(applyFrame); }");
                   client.println("    e.preventDefault();");
                   client.println("  }");
-                  client.println("  function onStart(e) { dragging = true; lastSent = 0; rect = track.getBoundingClientRect(); track.setPointerCapture(e.pointerId); onMove(e); }");
-                  client.println("  function onEnd() { if (!dragging) return; dragging = false; pendingVal = center; setThumb(center); sendPos(ch, center); }");
+                  client.println("  function onStart(e) {");
+                  client.println("    if (dragging) return;");
+                  client.println("    dragging = true; activePointerId = e.pointerId; lastSent = 0; rect = track.getBoundingClientRect();");
+                  client.println("    onMove(e);");
+                  client.println("    e.preventDefault();");
+                  client.println("  }");
+                  client.println("  function onEnd(e) {");
+                  client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
+                  client.println("    dragging = false; activePointerId = null; pendingVal = center; setThumb(center); sendPos(ch, center);");
+                  client.println("  }");
                   client.println("  track.addEventListener('pointerdown', onStart);");
-                  client.println("  track.addEventListener('pointermove', onMove);");
-                  client.println("  track.addEventListener('pointerup', onEnd);");
-                  client.println("  track.addEventListener('pointercancel', onEnd);");
+                  client.println("  window.addEventListener('pointermove', onMove);");
+                  client.println("  window.addEventListener('pointerup', onEnd);");
+                  client.println("  window.addEventListener('pointercancel', onEnd);");
                   client.println("  setThumb(center);");
                   client.println("}");
                   client.println("setupThrottleTrack(" + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
