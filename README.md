@@ -86,9 +86,6 @@ Any ESP32 DevKit board works — connect an I2C OLED, a 5-pin rotary encoder wit
 | BOOT button ("next channel" shortcut) | 0 | Onboard button on most ESP32 DevKit boards, no extra wiring needed |
 | Encoder click LED | 2 | LED + ~220-330Ω series resistor to GND, mounted next to the power LED |
 | Battery voltage sense | 36 | Input-only ADC pin; needs an external resistor divider to bring pack voltage (up to 6S/~25.2V) under 3.3V — the divider ratio is calibrated in software via the "Power Scale" setting, no fixed resistor values required |
-| Joystick X axis (VRx) | 34 | Input-only ADC pin, optional |
-| Joystick Y axis (VRy) | 35 | Input-only ADC pin, optional |
-| Joystick click button (SW) | 26 | Optional; most joystick breakout modules already have their own pull-up |
 | Oscilloscope probe input | 39 | Input-only ADC pin, optional; 0-3.3V RC signals only |
 | Signal Generator output | 25 | Optional; the ESP32's other DAC-capable pin, 0-3.3V |
 
@@ -96,4 +93,4 @@ Power: USB 5V is enough for small servos. For anything drawing more current, fee
 
 ## Menu
 
-Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Info, Joystick, Oscilloscope, Signal Generator, and Settings (last). Info is a single item with 3 pages you page through left/right: on-screen controls help (same as the boot screen), Wifi status, and firmware version/source.
+Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Info, Oscilloscope, Signal Generator, and Settings (last). Info is a single item with 3 pages you page through left/right: on-screen controls help (same as the boot screen), Wifi status, and firmware version/source.
