@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.34"; // Software revision.
+char codeVersion[] = "0.36"; // Software revision.
 
 //
 // =======================================================================================================
@@ -101,8 +101,10 @@ using namespace std;
 
 // EEPROM
 #define NUM_SERVO_CHANNELS 5
+#define NUM_SERVO_MODES 6 // STD, NOR, SHR, SSR, SUR, SXR
 #define SERVO_CHANNEL_DATA_START 48
-#define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * 24) // 24 bytes (6 ints) per servo channel
+#define SERVO_CHANNEL_STRIDE (NUM_SERVO_MODES * 3 * 4) // 3 values (Max/Min/Center) x 6 modes x 4 bytes = 72 bytes per channel
+#define SERVO_CHANNEL_DATA_END (SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * SERVO_CHANNEL_STRIDE)
 #define WIFI_STA_DATA_START (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
 #define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
 #define SERVO_MODE_GROUP_DATA_START (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
@@ -113,15 +115,13 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 6         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 7         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
 #define adr_eprom_JOYSTICK_Y_CHANNEL (JOYSTICK_DATA_START + 4)
 #define adr_eprom_SERVO_MODE_GROUP(g) (SERVO_MODE_GROUP_DATA_START + (g)*4)
-#define adr_eprom_SERVO_MIN 12          // Deprecated, controlled by servoModes.h
-#define adr_eprom_SERVO_CENTER 16       // Deprecated, controlled by servoModes.h
-#define adr_eprom_SERVO_Hz 20           // Deprecated, controlled by servoModes.h
+// Addresses 12, 16, 20 used to hold a single deprecated SERVO_MIN/CENTER/Hz scalar - unused, free
 #define adr_eprom_POWER_SCALE 24        // Skalierung für Akkuspannungs-Messung
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
 #define adr_eprom_ENCODER_INVERTED 32   // Encoder inverted
@@ -129,15 +129,37 @@ int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 #define adr_eprom_SPEED_CURVE 40        // Encoder speed curve exponent x10 (reused from the old removed PONG_BALL_RATE address)
 #define adr_eprom_SERVO_MODE 44         // Old single shared mode value, read only once during the layout-version-6 migration
 
-// SERVO µs Max/Min/Center per servo channel (0-4), Standard and Sanwa mode groups, 24 bytes (6 ints) per channel
-#define adr_eprom_SERVO_MAX_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 0)
-#define adr_eprom_SERVO_MIN_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 4)
-#define adr_eprom_SERVO_CENTER_STD(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 8)
-#define adr_eprom_SERVO_MAX_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 12)
-#define adr_eprom_SERVO_MIN_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 16)
-#define adr_eprom_SERVO_CENTER_SANWA(ch) (SERVO_CHANNEL_DATA_START + (ch)*24 + 20)
+// SERVO µs Max/Min/Center per servo channel (0-4) AND per mode (0-5: STD/NOR/SHR/SSR/SUR/SXR),
+// 72 bytes (18 ints) per channel - each mode remembers its own calibration independently now.
+#define adr_eprom_SERVO_MAX(ch, mode) (SERVO_CHANNEL_DATA_START + (ch)*SERVO_CHANNEL_STRIDE + (mode)*12 + 0)
+#define adr_eprom_SERVO_MIN(ch, mode) (SERVO_CHANNEL_DATA_START + (ch)*SERVO_CHANNEL_STRIDE + (mode)*12 + 4)
+#define adr_eprom_SERVO_CENTER(ch, mode) (SERVO_CHANNEL_DATA_START + (ch)*SERVO_CHANNEL_STRIDE + (mode)*12 + 8)
 // Full rotation range in degrees per servo channel (e.g. 90/180/360), appended after the block above
 #define adr_eprom_SERVO_DEGREES(ch) (SERVO_CHANNEL_DATA_END + (ch)*4)
+
+// Old (pre layout version 7) addresses, only used to migrate existing calibration data forward -
+// each channel used to have just 2 shared families (Std/NOR/SHR and SSR/SUR/SXR) in 24 bytes.
+#define OLD_SERVO_CHANNEL_DATA_START 48
+#define OLD_SERVO_CHANNEL_STRIDE 24
+#define OLD_SERVO_CHANNEL_DATA_END (OLD_SERVO_CHANNEL_DATA_START + NUM_SERVO_CHANNELS * OLD_SERVO_CHANNEL_STRIDE)
+#define adr_eprom_OLD_SERVO_MAX_STD(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 0)
+#define adr_eprom_OLD_SERVO_MIN_STD(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 4)
+#define adr_eprom_OLD_SERVO_CENTER_STD(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 8)
+#define adr_eprom_OLD_SERVO_MAX_SANWA(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 12)
+#define adr_eprom_OLD_SERVO_MIN_SANWA(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 16)
+#define adr_eprom_OLD_SERVO_CENTER_SANWA(ch) (OLD_SERVO_CHANNEL_DATA_START + (ch)*OLD_SERVO_CHANNEL_STRIDE + 20)
+#define adr_eprom_OLD_SERVO_DEGREES(ch) (OLD_SERVO_CHANNEL_DATA_END + (ch)*4)
+// Widening the calibration block above also pushed every field after it to a new address - these
+// fields' own content didn't change, only where they live, but they still must be read from here
+// on the version-7 migration boot, or the data silently reads as blank/garbage from the new location.
+#define OLD_WIFI_STA_DATA_START (OLD_SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4)
+#define OLD_JOYSTICK_DATA_START (OLD_WIFI_STA_DATA_START + 34 + 66)
+#define OLD_SERVO_MODE_GROUP_DATA_START (OLD_JOYSTICK_DATA_START + 8)
+#define adr_eprom_OLD_STA_SSID OLD_WIFI_STA_DATA_START
+#define adr_eprom_OLD_STA_PASSWORD (OLD_WIFI_STA_DATA_START + 34)
+#define adr_eprom_OLD_JOYSTICK_X_CHANNEL OLD_JOYSTICK_DATA_START
+#define adr_eprom_OLD_JOYSTICK_Y_CHANNEL (OLD_JOYSTICK_DATA_START + 4)
+#define adr_eprom_OLD_SERVO_MODE_GROUP(g) (OLD_SERVO_MODE_GROUP_DATA_START + (g)*4)
 
 // EEPROM storage for settings
 int WIFI_ON;            // WIFI 1 = Ein 0 = Aus
@@ -178,12 +200,11 @@ uint8_t servoTimerGroup(uint8_t ch)
     return 1; // Servo 3+4 - MCPWM_UNIT_0/TIMER_1
   return 2;   // Servo 5   - MCPWM_UNIT_1/TIMER_0 (the only channel with a genuinely independent timer)
 }
-int SERVO_MAX_STD[NUM_SERVO_CHANNELS];      // SERVO µs Max Wert im Servotester Modus (Standard), pro Kanal
-int SERVO_MIN_STD[NUM_SERVO_CHANNELS];      // SERVO µs Min Wert im Servotester Modus (Standard), pro Kanal
-int SERVO_CENTER_STD[NUM_SERVO_CHANNELS];   // SERVO µs Mitte Wert im Servotester Modus (Standard), pro Kanal
-int SERVO_MAX_SANWA[NUM_SERVO_CHANNELS];    // SERVO µs Max Wert im Servotester Modus (Sanwa), pro Kanal
-int SERVO_MIN_SANWA[NUM_SERVO_CHANNELS];    // SERVO µs Min Wert im Servotester Modus (Sanwa), pro Kanal
-int SERVO_CENTER_SANWA[NUM_SERVO_CHANNELS]; // SERVO µs Mitte Wert im Servotester Modus (Sanwa), pro Kanal
+// Min/Max/Center in µs, per servo channel AND per mode (STD/NOR/SHR/SSR/SUR/SXR) - each mode
+// remembers its own calibration independently for a given channel.
+int SERVO_MAX_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
+int SERVO_MIN_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
+int SERVO_CENTER_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
 int SERVO_DEGREES[NUM_SERVO_CHANNELS];      // Volledige draaihoek in graden (bv. 90/180/360), pro Kanal
 
 bool WiFiChanged;
@@ -1619,16 +1640,17 @@ void MenuUpdate()
     servo_pos[selectedServo] = pulseIn(servopin[selectedServo], HIGH, 50000); // Read PWM signal
     pwmFreq = readFreq(servopin[selectedServo], HIGH, 50000);                 // Read PWM frequency
 
-    // Switch progress bar range
+    // Switch progress bar range - just a rough display heuristic, not tied to the actual selected
+    // mode, so reference the Std (normal-range) and SSR (short-range) calibrations as stand-ins.
     if (servo_pos[selectedServo] > 750) // Normal pulsewidth range
     {
-      PulseMin = SERVO_MIN_STD[selectedServo];
-      PulseMax = SERVO_MAX_STD[selectedServo];
+      PulseMin = SERVO_MIN_BY_MODE[selectedServo][STD];
+      PulseMax = SERVO_MAX_BY_MODE[selectedServo][STD];
     }
     else // Sanwa pulsewidth range
     {
-      PulseMin = SERVO_MIN_SANWA[selectedServo];
-      PulseMax = SERVO_MAX_SANWA[selectedServo];
+      PulseMin = SERVO_MIN_BY_MODE[selectedServo][SSR];
+      PulseMax = SERVO_MAX_BY_MODE[selectedServo][SSR];
     }
 
     // Enlarge range, if required
@@ -1935,12 +1957,10 @@ void MenuUpdate()
     // Mode is per timer group now, so the X and Y channels may each be in a different mode family
     int xMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
     int yMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
-    bool xInStdMode = (xMode == STD || xMode == NOR || xMode == SHR);
-    bool yInStdMode = (yMode == STD || yMode == NOR || yMode == SHR);
-    int xMin = xInStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
-    int xMax = xInStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
-    int yMin = yInStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
-    int yMax = yInStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+    int xMin = SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][xMode];
+    int xMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][xMode];
+    int yMin = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][yMode];
+    int yMax = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode];
 
     // ESP32's ADC has a well-known channel "memory effect": switching to a new ADC1 channel right
     // after reading a different one can carry over some residual charge from the previous channel's
@@ -2202,22 +2222,13 @@ void MenuUpdate()
           selectedServo--; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 3:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MAX_STD[selectedServo] -= encoderSpeed;
-          else
-            SERVO_MAX_SANWA[selectedServo] -= encoderSpeed;
+          SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 4:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MIN_STD[selectedServo] -= encoderSpeed;
-          else
-            SERVO_MIN_SANWA[selectedServo] -= encoderSpeed;
+          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 5:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_CENTER_STD[selectedServo] -= encoderSpeed;
-          else
-            SERVO_CENTER_SANWA[selectedServo] -= encoderSpeed;
+          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] -= encoderSpeed;
           break;
         case 6:
           SERVO_DEGREES[selectedServo] -= encoderSpeed;
@@ -2271,22 +2282,13 @@ void MenuUpdate()
           selectedServo++; // Pick which servo channel Max/Min/Center below apply to
           break;
         case 3:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MAX_STD[selectedServo] += encoderSpeed;
-          else
-            SERVO_MAX_SANWA[selectedServo] += encoderSpeed;
+          SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 4:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_MIN_STD[selectedServo] += encoderSpeed;
-          else
-            SERVO_MIN_SANWA[selectedServo] += encoderSpeed;
+          SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 5:
-          if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
-            SERVO_CENTER_STD[selectedServo] += encoderSpeed;
-          else
-            SERVO_CENTER_SANWA[selectedServo] += encoderSpeed;
+          SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] += encoderSpeed;
           break;
         case 6:
           SERVO_DEGREES[selectedServo] += encoderSpeed;
@@ -2396,15 +2398,20 @@ void MenuUpdate()
       RESET_EEPROM = 1;
     }
 
-    // Full 200-3000µs range allowed: no built-in safety margin, some servos may hit their mechanical end stop
-    SERVO_MIN_STD[selectedServo] = constrain(SERVO_MIN_STD[selectedServo], 200, 3000);
-    SERVO_MIN_SANWA[selectedServo] = constrain(SERVO_MIN_SANWA[selectedServo], 100, 200);
-
-    SERVO_CENTER_STD[selectedServo] = constrain(SERVO_CENTER_STD[selectedServo], 200, 3000);
-    SERVO_CENTER_SANWA[selectedServo] = constrain(SERVO_CENTER_SANWA[selectedServo], 250, 350);
-
-    SERVO_MAX_STD[selectedServo] = constrain(SERVO_MAX_STD[selectedServo], 200, 3000);
-    SERVO_MAX_SANWA[selectedServo] = constrain(SERVO_MAX_SANWA[selectedServo], 400, 500);
+    // Full 200-3000µs range allowed: no built-in safety margin, some servos may hit their mechanical end stop.
+    // Clamp only the currently active mode - the others keep whatever they were last clamped to.
+    if (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR)
+    {
+      SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE], 200, 3000);
+      SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE], 200, 3000);
+      SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE], 200, 3000);
+    }
+    else
+    {
+      SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE], 100, 200);
+      SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE], 250, 350);
+      SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] = constrain(SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE], 400, 500);
+    }
 
     SERVO_DEGREES[selectedServo] = constrain(SERVO_DEGREES[selectedServo], 10, 360);
 
@@ -2533,8 +2540,8 @@ void eepromInit()
   bool anyChannelInvalid = false;
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
-    Serial.println(SERVO_MIN_STD[ch]);
-    if (SERVO_MIN_STD[ch] < 50)
+    Serial.println(SERVO_MIN_BY_MODE[ch][STD]);
+    if (SERVO_MIN_BY_MODE[ch][STD] < 50)
       anyChannelInvalid = true;
   }
 
@@ -2565,12 +2572,21 @@ void eepromInit()
     }
     for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
     {
-      SERVO_MAX_STD[ch] = 2000;
-      SERVO_MIN_STD[ch] = 1000;
-      SERVO_CENTER_STD[ch] = 1500;
-      SERVO_MAX_SANWA[ch] = 470;
-      SERVO_MIN_SANWA[ch] = 130;
-      SERVO_CENTER_SANWA[ch] = 300;
+      for (uint8_t m = 0; m < NUM_SERVO_MODES; m++)
+      {
+        if (m == STD || m == NOR || m == SHR)
+        {
+          SERVO_MAX_BY_MODE[ch][m] = 2000;
+          SERVO_MIN_BY_MODE[ch][m] = 1000;
+          SERVO_CENTER_BY_MODE[ch][m] = 1500;
+        }
+        else
+        {
+          SERVO_MAX_BY_MODE[ch][m] = 470;
+          SERVO_MIN_BY_MODE[ch][m] = 130;
+          SERVO_CENTER_BY_MODE[ch][m] = 300;
+        }
+      }
       SERVO_DEGREES[ch] = 90;
     }
     Serial.println(eepromInitString[LANGUAGE]);
@@ -2588,11 +2604,6 @@ void eepromWrite()
   EEPROM.writeString(adr_eprom_STA_PASSWORD, STA_PASSWORD);
   EEPROM.writeInt(adr_eprom_JOYSTICK_X_CHANNEL, JOYSTICK_X_CHANNEL);
   EEPROM.writeInt(adr_eprom_JOYSTICK_Y_CHANNEL, JOYSTICK_Y_CHANNEL);
-  // EEPROM.writeInt(adr_eprom_SERVO_STEPS, SERVO_STEPS);
-  //  EEPROM.writeInt(adr_eprom_SERVO_MAX, SERVO_MAX);
-  //  EEPROM.writeInt(adr_eprom_SERVO_MIN, SERVO_MIN);
-  //  EEPROM.writeInt(adr_eprom_SERVO_CENTER, SERVO_CENTER);
-  //  EEPROM.writeInt(adr_eprom_SERVO_Hz, SERVO_Hz);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
@@ -2604,12 +2615,12 @@ void eepromWrite()
   }
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
-    EEPROM.writeInt(adr_eprom_SERVO_MAX_STD(ch), SERVO_MAX_STD[ch]);
-    EEPROM.writeInt(adr_eprom_SERVO_MIN_STD(ch), SERVO_MIN_STD[ch]);
-    EEPROM.writeInt(adr_eprom_SERVO_CENTER_STD(ch), SERVO_CENTER_STD[ch]);
-    EEPROM.writeInt(adr_eprom_SERVO_MAX_SANWA(ch), SERVO_MAX_SANWA[ch]);
-    EEPROM.writeInt(adr_eprom_SERVO_MIN_SANWA(ch), SERVO_MIN_SANWA[ch]);
-    EEPROM.writeInt(adr_eprom_SERVO_CENTER_SANWA(ch), SERVO_CENTER_SANWA[ch]);
+    for (uint8_t m = 0; m < NUM_SERVO_MODES; m++)
+    {
+      EEPROM.writeInt(adr_eprom_SERVO_MAX(ch, m), SERVO_MAX_BY_MODE[ch][m]);
+      EEPROM.writeInt(adr_eprom_SERVO_MIN(ch, m), SERVO_MIN_BY_MODE[ch][m]);
+      EEPROM.writeInt(adr_eprom_SERVO_CENTER(ch, m), SERVO_CENTER_BY_MODE[ch][m]);
+    }
     EEPROM.writeInt(adr_eprom_SERVO_DEGREES(ch), SERVO_DEGREES[ch]);
   }
 
@@ -2621,11 +2632,6 @@ void eepromWrite()
 void eepromRead()
 {
   WIFI_ON = EEPROM.readInt(adr_eprom_WIFI_ON);
-  // SERVO_STEPS = EEPROM.readInt(adr_eprom_SERVO_STEPS);
-  //  SERVO_MAX = EEPROM.readInt(adr_eprom_SERVO_MAX);
-  //  SERVO_MIN = EEPROM.readInt(adr_eprom_SERVO_MIN);
-  //  SERVO_CENTER = EEPROM.readInt(adr_eprom_SERVO_CENTER);
-  //  SERVO_Hz = EEPROM.readInt(adr_eprom_SERVO_Hz);
   POWER_SCALE = EEPROM.readInt(adr_eprom_POWER_SCALE);
   SBUS_INVERTED = EEPROM.readInt(adr_eprom_SBUS_INVERTED);
   ENCODER_INVERTED = EEPROM.readInt(adr_eprom_ENCODER_INVERTED);
@@ -2640,12 +2646,19 @@ void eepromRead()
   // value must be discarded rather than reused as SPEED_CURVE.
   SPEED_CURVE = layoutJustChanged ? 19 : EEPROM.readInt(adr_eprom_SPEED_CURVE);
 
+  // Layout version 7 widened the calibration block earlier in EEPROM (2 shared families -> 6
+  // independent per-mode slots), which pushed every field below it - Wifi Station credentials,
+  // Joystick channel mapping, per-group servo mode - to a new address. Their own content didn't
+  // change, only where they live, so on that specific migration boot they must be read from their
+  // OLD address instead of the new one, or they'd silently read as blank/garbage.
+  bool addressesShiftedAtV7 = (storedLayoutVersion >= 4 && storedLayoutVersion < 7);
+
   // WIFI_MODE/STA_SSID/STA_PASSWORD were introduced at layout version 4 (WIFI_MODE reusing the old
   // deprecated SERVO_STEPS address, STA_SSID/PASSWORD newly appended). Only default them on a boot
   // that's upgrading from *before* version 4 - using the generic layoutJustChanged here instead would
   // wipe the saved home WiFi network and password on every future, unrelated layout bump too.
   bool wifiFieldsNeedDefaulting = (storedLayoutVersion < 4);
-  WIFI_MODE = wifiFieldsNeedDefaulting ? WIFI_AP_MODE : EEPROM.readInt(adr_eprom_WIFI_MODE);
+  WIFI_MODE = wifiFieldsNeedDefaulting ? WIFI_AP_MODE : EEPROM.readInt(adr_eprom_WIFI_MODE); // address 4, never moved
 
   // Freshly appended fields (never written before this firmware version): start blank rather than
   // risk EEPROM.readString() scanning unwritten flash for a null terminator that isn't there.
@@ -2653,6 +2666,11 @@ void eepromRead()
   {
     STA_SSID = "";
     STA_PASSWORD = "";
+  }
+  else if (addressesShiftedAtV7)
+  {
+    STA_SSID = EEPROM.readString(adr_eprom_OLD_STA_SSID);
+    STA_PASSWORD = EEPROM.readString(adr_eprom_OLD_STA_PASSWORD);
   }
   else
   {
@@ -2663,8 +2681,10 @@ void eepromRead()
   // Same reasoning as above: JOYSTICK_X/Y_CHANNEL were introduced at layout version 5, so only
   // default them when upgrading from before that version, not on every later bump.
   bool joystickFieldsNeedDefaulting = (storedLayoutVersion < 5);
-  JOYSTICK_X_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
-  JOYSTICK_Y_CHANNEL = constrain(joystickFieldsNeedDefaulting ? 1 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_CHANNEL), 0, NUM_SERVO_CHANNELS - 1);
+  int joystickXChannelRaw = joystickFieldsNeedDefaulting ? 0 : EEPROM.readInt(addressesShiftedAtV7 ? adr_eprom_OLD_JOYSTICK_X_CHANNEL : adr_eprom_JOYSTICK_X_CHANNEL);
+  int joystickYChannelRaw = joystickFieldsNeedDefaulting ? 1 : EEPROM.readInt(addressesShiftedAtV7 ? adr_eprom_OLD_JOYSTICK_Y_CHANNEL : adr_eprom_JOYSTICK_Y_CHANNEL);
+  JOYSTICK_X_CHANNEL = constrain(joystickXChannelRaw, 0, NUM_SERVO_CHANNELS - 1);
+  JOYSTICK_Y_CHANNEL = constrain(joystickYChannelRaw, 0, NUM_SERVO_CHANNELS - 1);
 
   // Mode (and Hz) used to be one single value shared by every channel, at the now-unused address 44.
   // Split into one value per timer group at layout version 6 - seed all 3 groups from that old shared
@@ -2673,26 +2693,67 @@ void eepromRead()
   int legacySharedMode = constrain(EEPROM.readInt(adr_eprom_SERVO_MODE), (int)STD, (int)SXR);
   for (uint8_t g = 0; g < NUM_SERVO_TIMER_GROUPS; g++)
   {
-    SERVO_MODE_PER_GROUP[g] = modeFieldsNeedDefaulting ? legacySharedMode : EEPROM.readInt(adr_eprom_SERVO_MODE_GROUP(g));
+    if (modeFieldsNeedDefaulting)
+      SERVO_MODE_PER_GROUP[g] = legacySharedMode;
+    else if (addressesShiftedAtV7)
+      SERVO_MODE_PER_GROUP[g] = EEPROM.readInt(adr_eprom_OLD_SERVO_MODE_GROUP(g));
+    else
+      SERVO_MODE_PER_GROUP[g] = EEPROM.readInt(adr_eprom_SERVO_MODE_GROUP(g));
   }
 
+  // Min/Max/Center used to be 2 shared families per channel (Std/NOR/SHR and SSR/SUR/SXR combined,
+  // 24 bytes/channel). Split into 6 independent slots per channel (one per mode) at layout version 7,
+  // at a new, bigger address range (72 bytes/channel) - seed each new slot from whichever old family
+  // it belonged to, so existing calibration doesn't change. Must read the OLD addresses (including
+  // the old degrees address, which the new bigger layout now overlaps) before eepromWrite() below
+  // writes the new layout - reading here only, no writes yet, so nothing is clobbered prematurely.
+  bool calibrationFieldsNeedDefaulting = (storedLayoutVersion < 7);
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
-    SERVO_MAX_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_MAX_STD(ch));
-    SERVO_MIN_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_MIN_STD(ch));
-    SERVO_CENTER_STD[ch] = EEPROM.readInt(adr_eprom_SERVO_CENTER_STD(ch));
-    SERVO_MAX_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_MAX_SANWA(ch));
-    SERVO_MIN_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_MIN_SANWA(ch));
-    SERVO_CENTER_SANWA[ch] = EEPROM.readInt(adr_eprom_SERVO_CENTER_SANWA(ch));
-    SERVO_DEGREES[ch] = layoutJustChanged ? 90 : EEPROM.readInt(adr_eprom_SERVO_DEGREES(ch));
+    if (calibrationFieldsNeedDefaulting)
+    {
+      int oldMaxStd = EEPROM.readInt(adr_eprom_OLD_SERVO_MAX_STD(ch));
+      int oldMinStd = EEPROM.readInt(adr_eprom_OLD_SERVO_MIN_STD(ch));
+      int oldCenterStd = EEPROM.readInt(adr_eprom_OLD_SERVO_CENTER_STD(ch));
+      int oldMaxSanwa = EEPROM.readInt(adr_eprom_OLD_SERVO_MAX_SANWA(ch));
+      int oldMinSanwa = EEPROM.readInt(adr_eprom_OLD_SERVO_MIN_SANWA(ch));
+      int oldCenterSanwa = EEPROM.readInt(adr_eprom_OLD_SERVO_CENTER_SANWA(ch));
+      for (uint8_t m = 0; m < NUM_SERVO_MODES; m++)
+      {
+        bool stdFamily = (m == STD || m == NOR || m == SHR);
+        SERVO_MAX_BY_MODE[ch][m] = stdFamily ? oldMaxStd : oldMaxSanwa;
+        SERVO_MIN_BY_MODE[ch][m] = stdFamily ? oldMinStd : oldMinSanwa;
+        SERVO_CENTER_BY_MODE[ch][m] = stdFamily ? oldCenterStd : oldCenterSanwa;
+      }
+    }
+    else
+    {
+      for (uint8_t m = 0; m < NUM_SERVO_MODES; m++)
+      {
+        SERVO_MAX_BY_MODE[ch][m] = EEPROM.readInt(adr_eprom_SERVO_MAX(ch, m));
+        SERVO_MIN_BY_MODE[ch][m] = EEPROM.readInt(adr_eprom_SERVO_MIN(ch, m));
+        SERVO_CENTER_BY_MODE[ch][m] = EEPROM.readInt(adr_eprom_SERVO_CENTER(ch, m));
+      }
+    }
+
+    // Sanity-check the read value instead of resetting on every unrelated layout bump (that bug
+    // used to silently wipe custom rotation angles back to 90 on every future EEPROM_LAYOUT_VERSION
+    // bump, since it isn't actually a new field).
+    int readDegrees = calibrationFieldsNeedDefaulting ? EEPROM.readInt(adr_eprom_OLD_SERVO_DEGREES(ch)) : EEPROM.readInt(adr_eprom_SERVO_DEGREES(ch));
+    SERVO_DEGREES[ch] = (readDegrees < 10 || readDegrees > 360) ? 90 : readDegrees;
   }
 
   if (layoutJustChanged)
   {
-    // One-time cleanup: channel 1 was left with an extreme 362-3000us test range, well past what a
-    // typical servo can physically reach. Bring it back to a sane full-range default.
-    SERVO_MIN_STD[0] = 500;
-    SERVO_MAX_STD[0] = 2500;
+    // One-time cleanup (only for upgrades from before layout version 2): channel 1 was left with an
+    // extreme 362-3000us test range, well past what a typical servo can physically reach. Bring it
+    // back to a sane full-range default. Gated to that specific version, not every future bump,
+    // otherwise it would keep re-overwriting a legitimately re-calibrated channel 1 forever after.
+    if (storedLayoutVersion < 2)
+    {
+      SERVO_MIN_BY_MODE[0][STD] = 500;
+      SERVO_MAX_BY_MODE[0][STD] = 2500;
+    }
 
     EEPROM.writeInt(adr_eprom_LAYOUT_VERSION, EEPROM_LAYOUT_VERSION);
     eepromWrite();
@@ -2717,12 +2778,12 @@ void eepromRead()
   Serial.println(SERVO_MODE);
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
-    Serial.println(SERVO_MAX_STD[ch]);
-    Serial.println(SERVO_MIN_STD[ch]);
-    Serial.println(SERVO_CENTER_STD[ch]);
-    Serial.println(SERVO_MAX_SANWA[ch]);
-    Serial.println(SERVO_MIN_SANWA[ch]);
-    Serial.println(SERVO_CENTER_SANWA[ch]);
+    for (uint8_t m = 0; m < NUM_SERVO_MODES; m++)
+    {
+      Serial.println(SERVO_MAX_BY_MODE[ch][m]);
+      Serial.println(SERVO_MIN_BY_MODE[ch][m]);
+      Serial.println(SERVO_CENTER_BY_MODE[ch][m]);
+    }
   }
 }
 

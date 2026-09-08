@@ -17,17 +17,6 @@
 
 // Default µs values see eepromInit()
 
-// Resolve the calibrated center position of a given servo channel, independent of which channel is
-// currently selected. Used to initialize/re-center all outputs at once (e.g. when entering a mode).
-int servoCenterForChannel(uint8_t ch)
-{
-  int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(ch)];
-  if (mode == STD || mode == NOR || mode == SHR)
-    return SERVO_CENTER_STD[ch];
-  else
-    return SERVO_CENTER_SANWA[ch];
-}
-
 // Frequency for a given mode - shared by servoModes() (display/duty) and setupMcpwm() (hardware timers)
 int servoHzForMode(int mode)
 {
@@ -48,79 +37,50 @@ int servoHzForMode(int mode)
   }
 }
 
+// Display name for a given mode
+String servoModeName(int mode)
+{
+  switch (mode)
+  {
+  case NOR:
+    return "NOR";
+  case SHR:
+    return "SHR";
+  case SSR:
+    return "SSR";
+  case SUR:
+    return "SUR";
+  case SXR:
+    return "SXR";
+  default:
+    return "Std.";
+  }
+}
+
+// Resolve the calibrated center position of a given servo channel, independent of which channel is
+// currently selected. Used to initialize/re-center all outputs at once (e.g. when entering a mode).
+int servoCenterForChannel(uint8_t ch)
+{
+  int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(ch)];
+  return SERVO_CENTER_BY_MODE[ch][mode];
+}
+
 void servoModes()
 {
   // Mode is stored per timer group now, not globally - refresh the legacy SERVO_MODE scalar to
   // whichever group the currently selected channel belongs to before using it below.
   SERVO_MODE = SERVO_MODE_PER_GROUP[servoTimerGroup(selectedServo)];
+  SERVO_MODE = constrain(SERVO_MODE, (int)STD, (int)SXR);
 
-  if (SERVO_MODE <= STD)
-    SERVO_MODE = STD; // Min. limit
+  SERVO_Hz = servoHzForMode(SERVO_MODE);
+  servoMode = servoModeName(SERVO_MODE);
 
-  // Modes with normal pulse lengths ---------------
-  if (SERVO_MODE == STD)
-  {
-    SERVO_Hz = 50;
-    SERVO_MAX = SERVO_MAX_STD[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_STD[selectedServo];
-    SERVO_MIN = SERVO_MIN_STD[selectedServo];
-
-    servoMode = "Std.";
-  }
-
-  if (SERVO_MODE == NOR)
-  {
-    SERVO_Hz = 100;
-    SERVO_MAX = SERVO_MAX_STD[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_STD[selectedServo];
-    SERVO_MIN = SERVO_MIN_STD[selectedServo];
-
-    servoMode = "NOR";
-  }
-
-  if (SERVO_MODE == SHR)
-  {
-    SERVO_Hz = 333;
-    SERVO_MAX = SERVO_MAX_STD[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_STD[selectedServo];
-    SERVO_MIN = SERVO_MIN_STD[selectedServo];
-
-    servoMode = "SHR";
-  }
-
-  // Modes with Sanwa pulse lengths ---------------
-  if (SERVO_MODE == SSR)
-  {
-    SERVO_Hz = 400;
-    SERVO_MAX = SERVO_MAX_SANWA[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_SANWA[selectedServo];
-    SERVO_MIN = SERVO_MIN_SANWA[selectedServo];
-
-    servoMode = "SSR";
-  }
-
-  if (SERVO_MODE == SUR)
-  {
-    SERVO_Hz = 800;
-    SERVO_MAX = SERVO_MAX_SANWA[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_SANWA[selectedServo];
-    SERVO_MIN = SERVO_MIN_SANWA[selectedServo];
-
-    servoMode = "SUR";
-  }
-
-  if (SERVO_MODE == SXR)
-  {
-    SERVO_Hz = 1600;
-    SERVO_MAX = SERVO_MAX_SANWA[selectedServo];
-    SERVO_CENTER = SERVO_CENTER_SANWA[selectedServo];
-    SERVO_MIN = SERVO_MIN_SANWA[selectedServo];
-
-    servoMode = "SXR";
-  }
-
-  if (SERVO_MODE >= SXR)
-    SERVO_MODE = SXR; // Max. limit
+  // Min/Max/Center are stored per channel AND per mode now - each of the 6 modes remembers its own
+  // calibration for a given channel, instead of the 2 previously shared families (Std/NOR/SHR and
+  // SSR/SUR/SXR).
+  SERVO_MAX = SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE];
+  SERVO_MIN = SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE];
+  SERVO_CENTER = SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE];
 
   // Persist any clamping back to the group this channel belongs to
   SERVO_MODE_PER_GROUP[servoTimerGroup(selectedServo)] = SERVO_MODE;

@@ -79,8 +79,6 @@ void webInterface()
 
               // Parse incoming requests -----------------------------------------------
 
-              bool inStdMode = (SERVO_MODE == STD || SERVO_MODE == NOR || SERVO_MODE == SHR);
-
               // These query keys are only ever fired from a slider/textbox's fire-and-forget
               // XHR (see oninput handlers below) - the JS never reads the response, so re-rendering
               // and sending the full settings/servo page HTML for every single one is pure wasted
@@ -156,10 +154,7 @@ void webInterface()
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
-                if (inStdMode)
-                  SERVO_MAX_STD[selectedServo] = valueString.toInt();
-                else
-                  SERVO_MAX_SANWA[selectedServo] = valueString.toInt();
+                SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE] = valueString.toInt();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Min=") >= 0)
@@ -167,10 +162,7 @@ void webInterface()
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
-                if (inStdMode)
-                  SERVO_MIN_STD[selectedServo] = valueString.toInt();
-                else
-                  SERVO_MIN_SANWA[selectedServo] = valueString.toInt();
+                SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE] = valueString.toInt();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Center=") >= 0)
@@ -178,10 +170,7 @@ void webInterface()
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
-                if (inStdMode)
-                  SERVO_CENTER_STD[selectedServo] = valueString.toInt();
-                else
-                  SERVO_CENTER_SANWA[selectedServo] = valueString.toInt();
+                SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE] = valueString.toInt();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Angle=") >= 0)
@@ -442,9 +431,8 @@ void webInterface()
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   int chMode = SERVO_MODE_PER_GROUP[servoTimerGroup(ch)];
-                  bool chInStdMode = (chMode == STD || chMode == NOR || chMode == SHR);
-                  int chMin = chInStdMode ? SERVO_MIN_STD[ch] : SERVO_MIN_SANWA[ch];
-                  int chMax = chInStdMode ? SERVO_MAX_STD[ch] : SERVO_MAX_SANWA[ch];
+                  int chMin = SERVO_MIN_BY_MODE[ch][chMode];
+                  int chMax = SERVO_MAX_BY_MODE[ch][chMode];
                   int chCenterVal = servoCenterForChannel(ch);
                   valueString = String(servo_pos[ch], DEC);
 
@@ -500,12 +488,10 @@ void webInterface()
                 {
                   int diagXMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
                   int diagYMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
-                  bool diagXInStdMode = (diagXMode == STD || diagXMode == NOR || diagXMode == SHR);
-                  bool diagYInStdMode = (diagYMode == STD || diagYMode == NOR || diagYMode == SHR);
-                  int diagXMin = diagXInStdMode ? SERVO_MIN_STD[JOYSTICK_X_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_X_CHANNEL];
-                  int diagXMax = diagXInStdMode ? SERVO_MAX_STD[JOYSTICK_X_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_X_CHANNEL];
-                  int diagYMin = diagYInStdMode ? SERVO_MIN_STD[JOYSTICK_Y_CHANNEL] : SERVO_MIN_SANWA[JOYSTICK_Y_CHANNEL];
-                  int diagYMax = diagYInStdMode ? SERVO_MAX_STD[JOYSTICK_Y_CHANNEL] : SERVO_MAX_SANWA[JOYSTICK_Y_CHANNEL];
+                  int diagXMin = SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][diagXMode];
+                  int diagXMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][diagXMode];
+                  int diagYMin = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][diagYMode];
+                  int diagYMax = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][diagYMode];
                   client.println("<p>Calibrated CH" + String(JOYSTICK_X_CHANNEL + 1) + " range: " + String(diagXMin) + "-" + String(diagXMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_X_CHANNEL)) + ")</p>");
                   client.println("<p>Calibrated CH" + String(JOYSTICK_Y_CHANNEL + 1) + " range: " + String(diagYMin) + "-" + String(diagYMax) + " &micro;s (center " + String(servoCenterForChannel(JOYSTICK_Y_CHANNEL)) + ")</p>");
                   client.println("<p>Learned raw ADC range - X: " + String(joystickXRawMin) + "-" + String(joystickXRawMax) + " / Y: " + String(joystickYRawMin) + "-" + String(joystickYRawMax) + " (0-4095 max, 2048 = center)</p>");
@@ -528,9 +514,9 @@ void webInterface()
                 client.println("</p>");
 
                 // Per-channel calibration -----------------------------------
-                int chMax = inStdMode ? SERVO_MAX_STD[selectedServo] : SERVO_MAX_SANWA[selectedServo];
-                int chMin = inStdMode ? SERVO_MIN_STD[selectedServo] : SERVO_MIN_SANWA[selectedServo];
-                int chCenter = inStdMode ? SERVO_CENTER_STD[selectedServo] : SERVO_CENTER_SANWA[selectedServo];
+                int chMax = SERVO_MAX_BY_MODE[selectedServo][SERVO_MODE];
+                int chMin = SERVO_MIN_BY_MODE[selectedServo][SERVO_MODE];
+                int chCenter = SERVO_CENTER_BY_MODE[selectedServo][SERVO_MODE];
 
                 valueString = String(chMax, DEC);
                 client.println("<p><h3>Servo Max (&micro;s): <span id=\"textMaxValue\">" + valueString + "</span>");
