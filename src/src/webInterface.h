@@ -70,6 +70,24 @@ void webInterface()
             // that's the end of the client HTTP request, so send a response:
             if (currentLine.length() == 0)
             {
+              // /update/on triggers an actual firmware flash - answered with a redirect instead
+              // of a normal 200 page, specifically so the browser's address bar moves off this
+              // URL afterwards. Without that, a page refresh (e.g. because the device seemed
+              // unresponsive while flashing) would silently re-send the same GET and re-trigger
+              // another install attempt.
+              if (header.indexOf("GET /update/on") >= 0)
+              {
+                client.println("HTTP/1.1 302 Found");
+                client.println("Location: /80/on");
+                client.println("Connection: close");
+                client.println();
+                installFirmwareUpdate(); // Restarts on success; on failure, updateErrorMessage
+                                          // is picked up by the Info page this redirects to
+                client.stop();
+                header = "";
+                return;
+              }
+
               // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
               // followed by the content type so the client knows what to expect, then a blank line:
               client.println("HTTP/1.1 200 OK");
@@ -366,13 +384,9 @@ void webInterface()
                   updateErrorMessage = "No update available (running v" + String(codeVersion) + ")";
                 }
               }
-              if (header.indexOf("GET /update/on") >= 0)
-              {
-                // Blocks for the download, then restarts on success - the browser will just see the
-                // connection drop, which is expected. On failure it falls through to the normal page
-                // render below, with updateErrorMessage set.
-                installFirmwareUpdate();
-              }
+              // /update/on itself is handled earlier, right after the request headers are read,
+              // so it can answer with a redirect instead of falling through to this normal page
+              // render - see that block for why.
               if (header.indexOf("GET /pause/on") >= 0)
               {
                 if (Auto_Pause)

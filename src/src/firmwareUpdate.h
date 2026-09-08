@@ -125,7 +125,7 @@ bool installFirmwareUpdate()
   {
     WiFiClientSecure client;
     client.setInsecure();
-    client.setTimeout(15000);
+    client.setTimeout(15); // WiFiClient::setTimeout() takes SECONDS, unlike HTTPClient's own (ms) setTimeout() below
     HTTPClient https;
     https.setUserAgent("esp32-servo-tester");
     https.setConnectTimeout(15000);
