@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "0.60"; // Software revision.
+char codeVersion[] = "0.62"; // Software revision.
 
 //
 // =======================================================================================================
@@ -168,9 +168,9 @@ int WIFI_MODE;           // 0 = Access Point, 1 = Station, see WifiModeEnum abov
 String STA_SSID = "";     // Home WiFi network SSID to join in Station mode, entered via the web interface
 String STA_PASSWORD = ""; // Home WiFi network password to join in Station mode, entered via the web interface
 bool wifiStaFallback;     // True when Station mode was requested but joining failed, and we fell back to Access Point
-// Which servo channel (0-4) each Arcade Mode control drives (web interface) - used to be the
+// Which servo channel (0-4) each Joystick Mode control drives (web interface) - used to be the
 // physical analog joystick's X/Y channel mapping too, before that hardware was removed in favor
-// of the web-only Arcade Mode control.
+// of the web-only Joystick Mode control.
 int JOYSTICK_X_CHANNEL;
 int JOYSTICK_Y_CHANNEL;
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
@@ -204,7 +204,7 @@ int SERVO_CENTER_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
 int SERVO_DEGREES[NUM_SERVO_CHANNELS];      // Volledige draaihoek in graden (bv. 90/180/360), pro Kanal
 
 bool WiFiChanged;
-bool webArcadeMode; // Web interface: two-thumb touch-slider control page instead of the normal per-channel sliders
+bool webJoystickMode; // Web interface: two-thumb touch-slider control page instead of the normal per-channel sliders
 
 // Encoder + button
 ESP32Encoder encoder;
@@ -288,30 +288,23 @@ float batteryChargePercentage; // Akkuspannung in Prozent
 
 // Menüstruktur
 /*
- * 1 = Servotester_Select       Selection -> 51 Servotester_Menu
- * 2 = AutoMode_Select   Selection -> 52 AutoMode_Menu
- * 3 = ReadPulse_Select      Selection -> 53 ReadPulse_Menu
- * 4 = ReadMultiswitch_Select Selection -> 54 ReadMultiswitch_Menu
- * 5 = ReadSbus_Select        Selection -> 55 ReadSbus_Menu
- * 6 = ReadIbus_Select        Selection -> 56 ReadIbus_Menu
- * 7 = Info_Select              Selection -> 57 Info_Menu (3 pages, left/right to page through: Controls, Wifi, Firmware)
- * 8 = Oscilloscope_Select      Selection -> 61 Oscilloscope_Menu
- * 9 = SignalGenerator_Select   Selection -> 62 SignalGenerator_Menu
- * 10 = Settings_Select         Selection -> 58 Settings_Menu (last item)
+ * 1 = Servotester_Select ("Manual Mode")     Selection -> 51 Servotester_Menu
+ * 2 = AutoMode_Select ("Sweep Mode")         Selection -> 52 AutoMode_Menu
+ * 3 = ExpertFunctions_Select                 Selection -> 63 ExpertFunctions_Menu (its own
+ *     6-item sub-list, turn to browse, press to enter: Read Pulse, Read Multiswitch, Read SBUS,
+ *     Read IBUS, Oscilloscope, Signal Generator - each of those still has its own _Menu screen,
+ *     just no longer reachable directly from the top-level list)
+ * 4 = Info_Select                            Selection -> 57 Info_Menu (3 pages, left/right to page through: Controls, Wifi, Firmware)
+ * 5 = Settings_Select                        Selection -> 58 Settings_Menu (last item)
  * etc.
  */
 enum
 {
   Servotester_Select = 1,
   AutoMode_Select = 2,
-  ReadPulse_Select = 3,
-  ReadMultiswitch_Select = 4,
-  ReadSbus_Select = 5,
-  ReadIbus_Select = 6,
-  Info_Select = 7,
-  Oscilloscope_Select = 8,
-  SignalGenerator_Select = 9,
-  Settings_Select = 10,
+  ExpertFunctions_Select = 3,
+  Info_Select = 4,
+  Settings_Select = 5,
   //
   Servotester_Menu = 51,
   AutoMode_Menu = 52,
@@ -322,7 +315,8 @@ enum
   Info_Menu = 57,
   Settings_Menu = 58,
   Oscilloscope_Menu = 61,
-  SignalGenerator_Menu = 62
+  SignalGenerator_Menu = 62,
+  ExpertFunctions_Menu = 63
 };
 
 //-Menu 52 Automatik Modus
@@ -342,6 +336,7 @@ int value1[kanaele]; // Speicher Multiswitch Werte
 int Menu = Servotester_Select; // Active menu
 bool SetupMenu = false;         // Setup-menu state
 int SettingsItem = 0;            // Active settings item
+int ExpertFunctionsItem = 0;     // Which Expert Functions sub-item (0-5) is highlighted
 int InfoPage = 0;               // Which page of the Info menu is shown (0=Wifi, 1=Controls, 2=Firmware)
 bool Edit = false;              // Settings item selected for editing
 
@@ -1077,7 +1072,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "  Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, servotesterString[LANGUAGE]);
+    display.drawString(64, 25, "Manual Mode");
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.drawString(0, 0, "Hz");
@@ -1123,7 +1118,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, automaticModeString[LANGUAGE]);
+    display.drawString(64, 25, "Sweep Mode");
     display.drawString(64, 45, oscillateServoString[LANGUAGE]);
     drawWiFi();
     display.display();
@@ -1143,15 +1138,14 @@ void MenuUpdate()
     }
     break;
 
-  // Read Pulse Selection *********************************************************
-  case ReadPulse_Select:
+  // Expert Functions Selection *********************************************************
+  case ExpertFunctions_Select:
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
     display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, PwmImpulseString[LANGUAGE]);
-    display.drawString(64, 45, readCh1Ch5String[LANGUAGE]);
+    display.drawString(64, 25, "Expert Functions");
     drawWiFi();
     display.display();
 
@@ -1166,88 +1160,7 @@ void MenuUpdate()
 
     if (buttonState == 2)
     {
-      Menu = ReadPulse_Menu;
-    }
-    break;
-
-  // Read Multiswitch Selection *********************************************************
-  case ReadMultiswitch_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, "PPM Multiswitch");
-    display.drawString(64, 45, readCh5String[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = ReadMultiswitch_Menu;
-    }
-    break;
-
-  // Read SBUS Selection *********************************************************
-  case ReadSbus_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, readSbusString[LANGUAGE]);
-    display.drawString(64, 45, "CH5");
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = ReadSbus_Menu;
-    }
-    break;
-
-  // Read IBUS Selection *********************************************************
-  case ReadIbus_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, readIbusString[LANGUAGE]);
-    display.drawString(64, 45, "CH5");
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = ReadIbus_Menu;
+      Menu = ExpertFunctions_Menu;
     }
     break;
 
@@ -1274,62 +1187,6 @@ void MenuUpdate()
     if (buttonState == 2)
     {
       Menu = Info_Menu;
-    }
-    break;
-
-    // Oscilloscope Selection *********************************************************
-  case Oscilloscope_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = Oscilloscope_Menu;
-    }
-    break;
-
-    // Signal Generator Selection *********************************************************
-  case SignalGenerator_Select:
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu >");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
-    drawWiFi();
-    display.display();
-
-    if (encoderState == 1)
-    {
-      Menu--;
-    }
-    if (encoderState == 2)
-    {
-      Menu++;
-    }
-
-    if (buttonState == 2)
-    {
-      Menu = SignalGenerator_Menu;
     }
     break;
 
@@ -1587,6 +1444,85 @@ void MenuUpdate()
     }
     break;
 
+  // Expert Functions - its own 6-item sub-list, turn to browse, press to enter *******************
+  case ExpertFunctions_Menu:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, ExpertFunctionsItem == 0 ? "  Menu >" : (ExpertFunctionsItem == 5 ? "< Menu  " : "< Menu >"));
+    display.setFont(ArialMT_Plain_16);
+    switch (ExpertFunctionsItem)
+    {
+    case 0:
+      display.drawString(64, 25, PwmImpulseString[LANGUAGE]);
+      display.drawString(64, 45, readCh1Ch5String[LANGUAGE]);
+      break;
+    case 1:
+      display.drawString(64, 25, "PPM Multiswitch");
+      display.drawString(64, 45, readCh5String[LANGUAGE]);
+      break;
+    case 2:
+      display.drawString(64, 25, readSbusString[LANGUAGE]);
+      display.drawString(64, 45, "CH5");
+      break;
+    case 3:
+      display.drawString(64, 25, readIbusString[LANGUAGE]);
+      display.drawString(64, 45, "CH5");
+      break;
+    case 4:
+      display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+      break;
+    case 5:
+      display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
+      break;
+    }
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1 && ExpertFunctionsItem > 0)
+    {
+      ExpertFunctionsItem--;
+    }
+    if (encoderState == 2 && ExpertFunctionsItem < 5)
+    {
+      ExpertFunctionsItem++;
+    }
+
+    if (buttonState == 1) // Long press: back out to the top-level Expert Functions item
+    {
+      Menu = ExpertFunctions_Select;
+    }
+
+    if (buttonState == 2) // Short press: enter the highlighted sub-function
+    {
+      switch (ExpertFunctionsItem)
+      {
+      case 0:
+        Menu = ReadPulse_Menu;
+        break;
+      case 1:
+        Menu = ReadMultiswitch_Menu;
+        break;
+      case 2:
+        Menu = ReadSbus_Menu;
+        break;
+      case 3:
+        Menu = ReadIbus_Menu;
+        break;
+      case 4:
+        Menu = Oscilloscope_Menu;
+        break;
+      case 5:
+        Menu = SignalGenerator_Menu;
+        break;
+      }
+    }
+    break;
+
   // PWM Impuls lesen *********************************************************
   case ReadPulse_Menu:
 
@@ -1674,7 +1610,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = ReadPulse_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
       selectedServo = 0;
     }
@@ -1719,7 +1655,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = ReadMultiswitch_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
 
@@ -1768,7 +1704,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = ReadSbus_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
     break;
@@ -1814,7 +1750,7 @@ void MenuUpdate()
 
     if (buttonState == 1)
     {
-      Menu = ReadIbus_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
     break;
@@ -1904,7 +1840,7 @@ void MenuUpdate()
 
     if (buttonState == 1) // Back
     {
-      Menu = Oscilloscope_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
     break;
@@ -1925,7 +1861,7 @@ void MenuUpdate()
 
     if (buttonState == 1) // Back
     {
-      Menu = SignalGenerator_Select;
+      Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
     break;
@@ -2057,11 +1993,11 @@ void MenuUpdate()
       }
       break;
     case 13:
-      display.drawString(64, 25, "Arcade Steer");
+      display.drawString(64, 25, "Joystick Steer");
       display.drawString(64, 45, "CH" + String(JOYSTICK_X_CHANNEL + 1));
       break;
     case 14:
-      display.drawString(64, 25, "Arcade Throttle");
+      display.drawString(64, 25, "Joystick Throttle");
       display.drawString(64, 45, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
       break;
     }

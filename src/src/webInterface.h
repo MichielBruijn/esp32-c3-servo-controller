@@ -291,23 +291,27 @@ void webInterface()
               if (header.indexOf("GET /back/on") >= 0)
               {
                 Menu = Servotester_Select;
-                webArcadeMode = false;
+                webJoystickMode = false;
               }
               if (header.indexOf("GET /10/on") >= 0)
               {
                 Menu = Servotester_Menu;
-                webArcadeMode = false;
+                webJoystickMode = false;
               }
-              if (header.indexOf("GET /arcade/on") >= 0)
+              if (header.indexOf("GET /joystick/on") >= 0)
               {
                 // Reuses the Servotester_Menu screen so the mcpwm output loop there stays active -
                 // only the web page rendering differs (see the Servotester_Menu case below).
                 Menu = Servotester_Menu;
-                webArcadeMode = true;
+                webJoystickMode = true;
               }
               if (header.indexOf("GET /20/on") >= 0)
               {
                 Menu = AutoMode_Menu;
+              }
+              if (header.indexOf("GET /expert/on") >= 0)
+              {
+                Menu = ExpertFunctions_Menu;
               }
               if (header.indexOf("GET /30/on") >= 0)
               {
@@ -437,9 +441,9 @@ void webInterface()
               client.println("}");
               client.println("</script></head>");
 
-              // Page heading (skipped for Arcade Mode - full-screen touch page, no room for it)
+              // Page heading (skipped for Joystick Mode - full-screen touch page, no room for it)
               client.println("</head><body>");
-              if (!webArcadeMode)
+              if (!webJoystickMode)
               {
                 client.println("<h1>Servo Tester</h1>");
               }
@@ -447,7 +451,7 @@ void webInterface()
               switch (Menu)
               {
               case Servotester_Menu:
-                if (webArcadeMode)
+                if (webJoystickMode)
                 {
                   // Steering (horizontal, left thumb) + throttle (vertical, right thumb) - the
                   // common dual-thumb driving layout. Reuses the same JOYSTICK_X/Y_CHANNEL mapping
@@ -543,7 +547,7 @@ void webInterface()
                   break;
                 }
 
-                client.println("<h2>Servo Tester</h2>");
+                client.println("<h2>Manual Mode</h2>");
 
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
@@ -571,12 +575,12 @@ void webInterface()
                   client.println("} </script>");
                 }
 
-                client.println("<p><a href=\"/arcade/on\"><button class=\"button button3\">Arcade Mode (mobile)</button></a></p>");
+                client.println("<p><a href=\"/joystick/on\"><button class=\"button button3\">Joystick Mode (mobile)</button></a></p>");
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
               case AutoMode_Menu:
-                client.println("<h2>Automatic Mode</h2>");
+                client.println("<h2>Sweep Mode</h2>");
 
                 valueString = String(TimeAuto, DEC);
 
@@ -622,16 +626,27 @@ void webInterface()
                 client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
+              case ExpertFunctions_Menu:
+                client.println("<h2>Expert Functions</h2>");
+                client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Read PWM Impulse</button></a></p>");
+                client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Read PPM Multiswitch</button></a></p>");
+                client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
+                client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
+                client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Oscilloscope</button></a></p>");
+                client.println("<p><a href=\"/100/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
+                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                break;
+
               case Oscilloscope_Menu:
                 client.println("<h2>Oscilloscope</h2>");
                 client.println("<p>OLED-only feature - the live scope trace isn't available over the web, it's switched on now on the device itself. Probe input: GPIO39, 0-3.3V RC signals only.</p>");
-                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                client.println("<p><a href=\"/expert/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
               case SignalGenerator_Menu:
                 client.println("<h2>Signal Generator</h2>");
                 client.println("<p>OLED-only feature - waveform/frequency/ratio are set on the device itself, it's switched on now. Output: GPIO25, 0-3.3V.</p>");
-                client.println("<p><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></p>");
+                client.println("<p><a href=\"/expert/on\"><button class=\"button button2\">Menu</button></a></p>");
                 break;
 
               case Settings_Menu:
@@ -751,8 +766,8 @@ void webInterface()
                 client.println("sendThrottled('StaPass', \"/?StaPass=\" + encodeURIComponent(val) + \"&\");");
                 client.println("} </script>");
 
-                // Arcade Mode channel mapping (which channel each control drives) -----
-                client.println("<p><h3>Arcade Steer -> Channel</h3>");
+                // Joystick Mode channel mapping (which channel each control drives) -----
+                client.println("<p><h3>Joystick Steer -> Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
@@ -760,7 +775,7 @@ void webInterface()
                 }
                 client.println("</p>");
 
-                client.println("<p><h3>Arcade Throttle -> Channel</h3>");
+                client.println("<p><h3>Joystick Throttle -> Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
                   String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
@@ -776,23 +791,18 @@ void webInterface()
 
               default:
                 client.println("<h2>Menu</h2>");
-                client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Servo Tester</button></a></p>");
-                client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Automatic Mode</button></a></p>");
-                client.println("<p><a href=\"/30/on\"><button class=\"button button1\">Read PWM Impulse</button></a></p>");
-                client.println("<p><a href=\"/40/on\"><button class=\"button button1\">Read PPM Multiswitch</button></a></p>");
-                client.println("<p><a href=\"/50/on\"><button class=\"button button1\">Read SBUS</button></a></p>");
-                client.println("<p><a href=\"/60/on\"><button class=\"button button1\">Read IBUS</button></a></p>");
-                client.println("<p><a href=\"/arcade/on\"><button class=\"button button1\">Arcade Mode (mobile)</button></a></p>");
+                client.println("<p><a href=\"/10/on\"><button class=\"button button1\">Manual Mode</button></a></p>");
+                client.println("<p><a href=\"/20/on\"><button class=\"button button1\">Sweep Mode</button></a></p>");
+                client.println("<p><a href=\"/expert/on\"><button class=\"button button1\">Expert Functions</button></a></p>");
+                client.println("<p><a href=\"/joystick/on\"><button class=\"button button1\">Joystick Mode (mobile)</button></a></p>");
                 client.println("<p><a href=\"/80/on\"><button class=\"button button1\">Info</button></a></p>");
-                client.println("<p><a href=\"/90/on\"><button class=\"button button1\">Oscilloscope</button></a></p>");
-                client.println("<p><a href=\"/100/on\"><button class=\"button button1\">Signal Generator</button></a></p>");
                 client.println("<p><a href=\"/120/on\"><button class=\"button button1\">Settings</button></a></p>");
                 break; // Not needed when statement(s) are present
               }
 
-              // Shown on every page except Arcade Mode - source/copies for anyone who finds this
+              // Shown on every page except Joystick Mode - source/copies for anyone who finds this
               // device, but a full-screen touch page has no room for it
-              if (!webArcadeMode)
+              if (!webJoystickMode)
               {
                 client.println("<p style=\"margin-top:20px;\"><a href=\"https://github.com/MichielBruijn/esp32-servo-tester\">github.com/MichielBruijn/esp32-servo-tester</a></p>");
               }
