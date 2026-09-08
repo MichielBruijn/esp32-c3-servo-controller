@@ -495,7 +495,7 @@ void webInterface()
                   client.println("<script>");
                   client.println("function makeArcadeSlider(trackId, thumbId, valueId, label, horizontal, ch, min, center, max) {");
                   client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId), valueEl = document.getElementById(valueId);");
-                  client.println("  var dragging = false;");
+                  client.println("  var dragging = false, lastSent = 0;");
                   client.println("  function valueFromPointer(e) {");
                   client.println("    var rect = track.getBoundingClientRect();");
                   client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
@@ -510,11 +510,15 @@ void webInterface()
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging) return;");
                   client.println("    var val = valueFromPointer(e);");
-                  client.println("    setThumb(val);");
-                  client.println("    sendPos(ch, val);");
+                  client.println("    setThumb(val);"); // Always smooth on screen, even if the send below is throttled
+                  client.println("    var now = Date.now();");
+                  client.println("    if (now - lastSent >= 30) {"); // Cap send rate so 2 simultaneous drags don't overload the ESP32's WebSocket handling
+                  client.println("      lastSent = now;");
+                  client.println("      sendPos(ch, val);");
+                  client.println("    }");
                   client.println("    e.preventDefault();");
                   client.println("  }");
-                  client.println("  function onStart(e) { dragging = true; track.setPointerCapture(e.pointerId); onMove(e); }");
+                  client.println("  function onStart(e) { dragging = true; lastSent = 0; track.setPointerCapture(e.pointerId); onMove(e); }");
                   client.println("  function onEnd() { if (!dragging) return; dragging = false; setThumb(center); sendPos(ch, center); }");
                   client.println("  track.addEventListener('pointerdown', onStart);");
                   client.println("  track.addEventListener('pointermove', onMove);");
