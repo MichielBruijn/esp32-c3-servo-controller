@@ -26,6 +26,7 @@ All credit for the original firmware architecture (MCPWM servo generation, signa
 - 0.96" (SSD1306) or 1.3" (SH1106) OLED display
 - Web interface with the same settings and channel calibration as the OLED menu, reachable either via the device's own WiFi access point or, once configured, by joining your home WiFi network (`http://servotester.local`) — servo position sliders track a drag in real time (low-latency WebSocket channel), close to RC-stick feel
 - Optional analog joystick: X and Y axes each drive any servo channel you assign to them (direct position control, deadzone around center); its click button always changes channel (like the BOOT button), from any menu, with a "pew pew" sound instead of a plain beep
+- Optional built-in oscilloscope (0-3.3V RC signals) and 3-waveform (sine/triangle/rectangle) signal generator
 
 ## Changes in this fork
 
@@ -50,7 +51,8 @@ Compared to the upstream [TheDIYGuy999/Servotester_Deluxe](https://github.com/Th
 - **WiFi Station mode**: besides the device's own Access Point, it can now join an existing WiFi network instead (Settings menu or web Settings page — SSID/password are entered via the web interface). Once joined, it's reachable at `http://servotester.local` (mDNS) from any computer on that network, without disconnecting from your own WiFi/internet to reach it. If the configured network can't be joined within 10s, it automatically falls back to its own Access Point so it's never left unreachable. It also sends `servotester` as its DHCP hostname (instead of the default `esp32-<MAC suffix>`), so a network that registers DHCP hostnames in its DNS resolver (e.g. pfSense/Unbound) makes it reachable there too, under that name.
 - **WiFi channel 12/13 fix**: Station mode could silently fail to join networks broadcasting on channel 12 or 13 (common on European routers) because of the ESP32's WiFi regulatory domain. The allowed channel range is now explicitly set to 1-13 before every connection attempt, and a scan of visible networks (SSID/channel/signal) is printed to the serial console while connecting, to make future WiFi issues easier to diagnose.
 - **Connects to the strongest AP on multi-AP/mesh networks**: on networks where several access points broadcast the same SSID (e.g. a UniFi mesh) on different channels, the ESP32 used to join whichever one it found first while scanning, which could be a weak, distant AP. It now picks the strongest matching AP from its own scan and connects to that one specifically.
-- **Removed the oscilloscope function, the Pong and Flappy Bird games, and the Calculator** to simplify the firmware and free up flash space.
+- **Oscilloscope and Signal Generator brought back**, on new pins: they were originally removed to simplify the firmware, but have been restored on request. Originally they shared their pins with the servo/joystick connectors (Oscilloscope on GPIO32, Signal Generator on GPIO26); both now have a dedicated pin instead (GPIO39 and GPIO25) so they don't conflict with Servo5/SBUS or the joystick button. Not otherwise changed - same OLED-only menus as before, no web interface page. Not yet tested against a real signal/probe, only that the firmware boots and compiles cleanly; if the scope trace or generator waveform looks off, that's the first place to look.
+- **Removed the Pong and Flappy Bird games, and the Calculator** to simplify the firmware and free up flash space.
 - **Custom hardware**: this fork is not built on the original PCB — see [Wiring](#wiring) below for the GPIO pinout, which works with any ESP32 DevKit + I2C OLED + 5-pin rotary encoder breadboard build.
 
 ## How to program it
@@ -82,9 +84,11 @@ Any ESP32 DevKit board works — connect an I2C OLED, a 5-pin rotary encoder wit
 | Joystick X axis (VRx) | 34 | Input-only ADC pin, optional |
 | Joystick Y axis (VRy) | 35 | Input-only ADC pin, optional |
 | Joystick click button (SW) | 26 | Optional; most joystick breakout modules already have their own pull-up |
+| Oscilloscope probe input | 39 | Input-only ADC pin, optional; 0-3.3V RC signals only |
+| Signal Generator output | 25 | Optional; the ESP32's other DAC-capable pin, 0-3.3V |
 
 Power: USB 5V is enough for small servos. For anything drawing more current, feed the servos from a separate 2S-6S LiPo/BEC rather than the ESP32's own 5V pin — powering servos directly off the ESP32 board's regulator causes voltage-drop jitter on the PWM signal.
 
 ## Menu
 
-Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Wifi Info, Settings, Info, and Joystick.
+Navigate with the rotary encoder (turn to move, short press to select, long press to go back, double-click to jump between servo channels). See `src/src.ino` for the full menu tree: Servo Tester, Auto Mode, Pulse Read, Multiswitch Read, SBUS Read, IBUS Read, Wifi Info, Settings, Info, Joystick, Oscilloscope, and Signal Generator.

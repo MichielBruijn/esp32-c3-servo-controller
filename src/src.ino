@@ -39,7 +39,7 @@
  GPIO 26: Joystick click button
  */
 
-char codeVersion[] = "0.30"; // Software revision.
+char codeVersion[] = "0.31"; // Software revision.
 
 //
 // =======================================================================================================
@@ -252,6 +252,11 @@ bool pewPewTrigger;  // Set true to start the joystick button's "pew pew" laser 
 #define ENCODER_LED_FLASH_MS 15 // Flash duration per click
 int encoderLedDuration; // ms remaining for the current flash, 0 = off
 
+// Oscilloscope + Signal Generator pins - restored from an earlier version of this fork, moved off
+// their original pins (GPIO32, GPIO26) since those are now Servo5/SBUS and the joystick button
+#define OSCILLOSCOPE_PIN 39     // ADC1 pin only, input-only! Don't change without also updating oscilloscope.h's hardcoded ADC1_CHANNEL_3
+#define SIGNAL_GENERATOR_PIN 25 // The other DAC-capable pin (DAC_CHANNEL_1)
+
 // Serial command pins for SBUS, IBUS -----
 #define COMMAND_RX 32 // pin 13
 #define COMMAND_TX -1 // -1 is just a dummy
@@ -294,6 +299,8 @@ enum
   Einstellung_Auswahl = 8,
   Info_Auswahl = 9,
   Joystick_Auswahl = 10,
+  Oscilloscope_Auswahl = 11,
+  SignalGenerator_Auswahl = 12,
   //
   Servotester_Menu = 51,
   Automatik_Modus_Menu = 52,
@@ -304,7 +311,9 @@ enum
   WifiInfo_Menu = 57,
   Einstellung_Menu = 58,
   Info_Menu = 59,
-  Joystick_Menu = 60
+  Joystick_Menu = 60,
+  Oscilloscope_Menu = 61,
+  SignalGenerator_Menu = 62
 };
 
 //-Menu 52 Automatik Modus
@@ -528,9 +537,27 @@ unsigned long readFreq(uint8_t pin, uint8_t state, unsigned long timeout)
   return 1000000 / periodUs;
 }
 
+// Super fast analogRead() alternative, used by the oscilloscope ------------------------------
+// See: https://www.toptal.com/embedded/esp32-audio-sampling
+int IRAM_ATTR local_adc1_read(int channel)
+{
+  uint16_t adc_value;
+  SENS.sar_meas_start1.sar1_en_pad = (1 << channel); // only one channel is selected
+  while (SENS.sar_slave_addr1.meas_status != 0)
+    ;
+  SENS.sar_meas_start1.meas1_start_sar = 0;
+  SENS.sar_meas_start1.meas1_start_sar = 1;
+  while (SENS.sar_meas_start1.meas1_done_sar == 0)
+    ;
+  adc_value = SENS.sar_meas_start1.meas1_data_sar;
+  return adc_value;
+}
+
 // Additional headers --------------------------------------------------------------------------
 #include "src/servoModes.h"      // Servo operation profiles
 #include "src/webInterface.h"    // Configuration website
+#include "src/oscilloscope.h"    // A handy oscilloscope
+#include "src/signalGenerator.h" // A handy signal generator
 #include "src/systemImages.h"    // Symbols
 
 //
@@ -1303,7 +1330,7 @@ void MenuUpdate()
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_24);
-    display.drawString(64, 0, "< Menu  ");
+    display.drawString(64, 0, "< Menu >");
     display.setFont(ArialMT_Plain_16);
     display.drawString(64, 25, "Joystick");
     drawWiFi();
@@ -1315,12 +1342,68 @@ void MenuUpdate()
     }
     if (encoderState == 2)
     {
-      Menu = Joystick_Auswahl;
+      Menu++;
     }
 
     if (buttonState == 2)
     {
       Menu = Joystick_Menu;
+    }
+    break;
+
+    // Oscilloscope Auswahl *********************************************************
+  case Oscilloscope_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu >");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, readOscilloscopeString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, readOscilloscopeString2[LANGUAGE]);
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu++;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = Oscilloscope_Menu;
+    }
+    break;
+
+    // Signal Generator Auswahl *********************************************************
+  case SignalGenerator_Auswahl:
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.setFont(ArialMT_Plain_24);
+    display.drawString(64, 0, "< Menu  ");
+    display.setFont(ArialMT_Plain_16);
+    display.drawString(64, 25, signalGeneratorString[LANGUAGE]);
+    display.setFont(ArialMT_Plain_10);
+    display.drawString(64, 45, signalGeneratorString2[LANGUAGE]);
+    drawWiFi();
+    display.display();
+
+    if (encoderState == 1)
+    {
+      Menu--;
+    }
+    if (encoderState == 2)
+    {
+      Menu = SignalGenerator_Auswahl;
+    }
+
+    if (buttonState == 2)
+    {
+      Menu = SignalGenerator_Menu;
     }
     break;
 
@@ -1927,6 +2010,48 @@ void MenuUpdate()
     }
     break;
   }
+
+    // Oscilloscope *********************************************************
+  case Oscilloscope_Menu:
+
+    if (!SetupMenu) // This stuff is only executed once
+    {
+      pinMode(OSCILLOSCOPE_PIN, INPUT);
+      oscilloscopeLoop(true); // Init oscilloscope
+      SetupMenu = true;
+    }
+    else
+    {
+      oscilloscopeLoop(false); // Loop oscilloscope code
+    }
+
+    if (buttonState == 1) // Back
+    {
+      Menu = Oscilloscope_Auswahl;
+      SetupMenu = false;
+    }
+    break;
+
+    // Signal Generator *********************************************************
+  case SignalGenerator_Menu:
+
+    if (!SetupMenu) // This stuff is only executed once
+    {
+      pinMode(SIGNAL_GENERATOR_PIN, OUTPUT);
+      signalGeneratorLoop(true); // Init signal generator
+      SetupMenu = true;
+    }
+    else
+    {
+      signalGeneratorLoop(false); // Loop signal generator
+    }
+
+    if (buttonState == 1) // Back
+    {
+      Menu = SignalGenerator_Auswahl;
+      SetupMenu = false;
+    }
+    break;
 
   // Einstellung *********************************************************
   case Einstellung_Menu:

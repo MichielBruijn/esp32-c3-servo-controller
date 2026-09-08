@@ -40,6 +40,10 @@ String PwmImpulseString[] {"PWM Impulse", "PWM Impuls", "PWM Impulsion"};
 String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat."};
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
 String wifiInfoString[] {"Wifi Info", "Wifi Info", "Info Wifi"};
+String readOscilloscopeString[] {"Oscilloscope", "Oszilloskop", "Oscilloscope"};
+String readOscilloscopeString2[] {"0-3.3V, GPIO 39", "0-3.3V, GPIO 39", "0-3.3V, GPIO 39"};
+String signalGeneratorString[] {"Signal Generator", "Signal Generator", "Générat. de signal"};
+String signalGeneratorString2[] {"0-3.3V, GPIO 25", "0-3.3V, GPIO 25", "0-3.3V, GPIO 25"};
 
 // Setup
 String passwordString[] {"Password:", "Passwort:", "Mot de passe:"};
