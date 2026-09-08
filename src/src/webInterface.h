@@ -462,31 +462,34 @@ void webInterface()
                   int steerMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][steerMode];
                   int steerCenterVal = servoCenterForChannel(JOYSTICK_X_CHANNEL);
 
+                  // Both controls sit in a fixed strip at the bottom of the screen, within
+                  // natural thumb reach for a two-handed landscape grip (like holding a game
+                  // controller) - not stretched up to the top or out to the far edges.
                   client.println("<style>");
-                  client.println("body{margin:0;} .arcadeBar{display:flex;justify-content:center;padding:8px;}");
-                  client.println(".arcadeWrap{display:flex;flex-direction:column;justify-content:space-between;gap:16px;height:80vh;padding:0 16px 16px;box-sizing:border-box;}");
-                  client.println(".arcadeTrack{position:relative;background:#d3d3d3;border-radius:16px;touch-action:none;user-select:none;}");
-                  client.println("#trackSteer{width:100%;height:100px;}");
-                  client.println("#trackThrottle{width:100px;flex:1;align-self:flex-end;}");
-                  client.println(".arcadeThumb{position:absolute;width:64px;height:64px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
-                  client.println("#thumbSteer{top:50%;left:50%;margin-top:-32px;margin-left:-32px;}");
-                  client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-32px;margin-bottom:-32px;}");
-                  client.println(".arcadeLabelL,.arcadeLabelR{position:absolute;top:50%;transform:translateY(-50%);font-size:16px;font-weight:bold;color:#555;}");
+                  client.println("body{margin:0;overflow:hidden;}");
+                  client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
+                  client.println(".arcadeWrap{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;gap:24px;padding:60px 24px 24px;box-sizing:border-box;}");
+                  client.println(".arcadeZone{flex:1;position:relative;height:50vh;}");
+                  client.println(".arcadeTrack{position:absolute;background:#d3d3d3;border-radius:18px;touch-action:none;user-select:none;}");
+                  client.println("#trackSteer{left:0;right:0;top:50%;height:88px;margin-top:-44px;}");
+                  client.println("#trackThrottle{top:0;bottom:0;left:50%;width:88px;margin-left:-44px;}");
+                  client.println(".arcadeThumb{position:absolute;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
+                  client.println("#thumbSteer{top:50%;left:50%;margin-top:-30px;margin-left:-30px;}");
+                  client.println("#thumbThrottle{left:50%;bottom:50%;margin-left:-30px;margin-bottom:-30px;}");
+                  client.println(".arcadeLabelL,.arcadeLabelR{position:absolute;top:50%;transform:translateY(-50%);font-size:15px;font-weight:bold;color:#555;}");
                   client.println(".arcadeLabelL{left:14px;} .arcadeLabelR{right:14px;}");
-                  client.println(".arcadeLabelTop,.arcadeLabelBottom{position:absolute;left:0;right:0;text-align:center;font-size:16px;font-weight:bold;color:#555;}");
-                  client.println(".arcadeLabelTop{top:10px;} .arcadeLabelBottom{bottom:10px;}");
-                  client.println(".arcadeValueH{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:13px;color:#333;}");
-                  client.println(".arcadeValueV{position:absolute;top:50%;left:0;right:0;text-align:center;font-size:13px;color:#333;transform:translateY(18px);}");
+                  client.println(".arcadeLabelTop,.arcadeLabelBottom{position:absolute;left:0;right:0;text-align:center;font-size:15px;font-weight:bold;color:#555;}");
+                  client.println(".arcadeLabelTop{top:8px;} .arcadeLabelBottom{bottom:8px;}");
                   client.println("</style>");
 
-                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
+                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a><span id=\"valueSteer\"></span><span id=\"valueThrottle\"></span></div>");
                   client.println("<div class=\"arcadeWrap\">");
-                  client.println("<div class=\"arcadeTrack\" id=\"trackSteer\"><div class=\"arcadeLabelL\">Left</div><div class=\"arcadeThumb\" id=\"thumbSteer\"></div><div class=\"arcadeValueH\" id=\"valueSteer\"></div><div class=\"arcadeLabelR\">Right</div></div>");
-                  client.println("<div class=\"arcadeTrack\" id=\"trackThrottle\"><div class=\"arcadeLabelTop\">Forward</div><div class=\"arcadeThumb\" id=\"thumbThrottle\"></div><div class=\"arcadeValueV\" id=\"valueThrottle\"></div><div class=\"arcadeLabelBottom\">Reverse</div></div>");
+                  client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackSteer\"><div class=\"arcadeLabelL\">Left</div><div class=\"arcadeThumb\" id=\"thumbSteer\"></div><div class=\"arcadeLabelR\">Right</div></div></div>");
+                  client.println("<div class=\"arcadeZone\"><div class=\"arcadeTrack\" id=\"trackThrottle\"><div class=\"arcadeLabelTop\">Forward</div><div class=\"arcadeThumb\" id=\"thumbThrottle\"></div><div class=\"arcadeLabelBottom\">Reverse</div></div></div>");
                   client.println("</div>");
 
                   client.println("<script>");
-                  client.println("function makeArcadeSlider(trackId, thumbId, valueId, horizontal, ch, min, center, max) {");
+                  client.println("function makeArcadeSlider(trackId, thumbId, valueId, label, horizontal, ch, min, center, max) {");
                   client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId), valueEl = document.getElementById(valueId);");
                   client.println("  var dragging = false;");
                   client.println("  function valueFromPointer(e) {");
@@ -498,7 +501,7 @@ void webInterface()
                   client.println("  function setThumb(val) {");
                   client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
                   client.println("    if (horizontal) { thumb.style.left = (frac * 100) + '%'; } else { thumb.style.bottom = (frac * 100) + '%'; }");
-                  client.println("    valueEl.textContent = val + ' \\u00b5s';");
+                  client.println("    valueEl.textContent = label + ': ' + val + ' \\u00b5s';");
                   client.println("  }");
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging) return;");
@@ -515,8 +518,8 @@ void webInterface()
                   client.println("  track.addEventListener('pointercancel', onEnd);");
                   client.println("  setThumb(center);");
                   client.println("}");
-                  client.println("makeArcadeSlider('trackSteer','thumbSteer','valueSteer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
-                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle','valueThrottle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("makeArcadeSlider('trackSteer','thumbSteer','valueSteer','Steer',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
+                  client.println("makeArcadeSlider('trackThrottle','thumbThrottle','valueThrottle','Throttle',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
                   client.println("</script>");
                   break;
                 }
