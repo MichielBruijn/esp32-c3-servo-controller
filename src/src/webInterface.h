@@ -462,57 +462,40 @@ void webInterface()
                   int steerMax = SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][steerMode];
                   int steerCenterVal = servoCenterForChannel(JOYSTICK_X_CHANNEL);
 
-                  // Native <input type=range> instead of hand-rolled touch tracking: custom
-                  // pointermove+transform code still stuttered on the second simultaneous drag no
-                  // matter how the per-frame work was optimized. Native range inputs hand ALL touch
-                  // tracking (including true independent multi-touch) to the browser/OS's own
-                  // widget, the same one already used smoothly elsewhere on this page - sidesteps
-                  // the problem instead of continuing to chase it in custom JS.
+                  // Both controls are custom track+thumb divs now - mixing a native <input
+                  // type=range> (steer) with a custom Pointer Events div (throttle) turned out to
+                  // be the real problem: whichever was touched *second* went completely
+                  // unresponsive, order-dependently, no matter what CSS/capture combination was
+                  // tried. That pattern only appeared once a native form control was in the mix, so
+                  // this is presumably a GeckoView engine limitation on mixing the two for
+                  // simultaneous multi-touch, not something fixable from here - using the same
+                  // custom implementation for both avoids the mix entirely.
                   client.println("<style>");
                   client.println("body{margin:0;overflow:hidden;}");
                   client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
-                  client.println("input[type=range].arcade{-webkit-appearance:none;appearance:none;background:#d3d3d3;border-radius:20px;outline:none;touch-action:none;}");
-                  client.println("input[type=range].arcade::-webkit-slider-thumb{-webkit-appearance:none;width:60px;height:60px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
-                  client.println("input[type=range].arcade::-moz-range-thumb{width:60px;height:60px;border-radius:50%;background:#4CAF50;border:none;box-shadow:0 2px 6px rgba(0,0,0,0.4);}");
-                  client.println("input[type=range].arcade::-moz-range-track{background:#d3d3d3;border-radius:20px;}");
-                  client.println("#steerRange{position:fixed;left:5vw;width:39vw;height:70px;top:50%;transform:translateY(-50%);}");
-                  // Neither rotating a native range input nor Firefox's own -moz-orient:vertical
-                  // gave a working vertical control on Android Firefox (the latter fell back to a
-                  // horizontal drag range squeezed into a narrow box). Custom track+thumb it is, for
-                  // this one control only - steer stays native since that already works fine.
-                  // No touch-action:none here - on Android Firefox that combined with a second,
-                  // separate touch starting on the native steer input left steer unresponsive,
-                  // order-dependently. Relying on preventDefault() in JS instead (see below).
-                  client.println("#throttleTrack{position:fixed;left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;background:#d3d3d3;border-radius:20px;user-select:none;}");
-                  client.println("#throttleThumb{position:absolute;top:50%;left:50%;width:60px;height:60px;margin-top:-30px;margin-left:-30px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
+                  client.println(".arcadeTrack{position:fixed;background:#d3d3d3;border-radius:20px;user-select:none;}");
+                  client.println(".arcadeThumb{position:absolute;top:50%;left:50%;width:60px;height:60px;margin-top:-30px;margin-left:-30px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
+                  client.println("#steerTrack{left:5vw;width:39vw;height:70px;top:50%;margin-top:-35px;}");
+                  client.println("#throttleTrack{left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
-                  client.println("<input type=\"range\" class=\"arcade\" id=\"steerRange\">");
-                  client.println("<div id=\"throttleTrack\"><div id=\"throttleThumb\"></div></div>");
+                  client.println("<div class=\"arcadeTrack\" id=\"steerTrack\"><div class=\"arcadeThumb\" id=\"steerThumb\"></div></div>");
+                  client.println("<div class=\"arcadeTrack\" id=\"throttleTrack\"><div class=\"arcadeThumb\" id=\"throttleThumb\"></div></div>");
 
                   client.println("<script>");
-                  client.println("function setupArcadeRange(id, ch, min, center, max) {");
-                  client.println("  var el = document.getElementById(id), lastSent = 0;");
-                  client.println("  el.min = min; el.max = max; el.value = center;");
-                  client.println("  el.addEventListener('input', function() {");
-                  client.println("    var now = Date.now();");
-                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, parseInt(el.value, 10)); }"); // Caps send rate, same as the position sliders elsewhere on this page
-                  client.println("  });");
-                  client.println("  el.addEventListener('change', function() { el.value = center; sendPos(ch, center); });"); // Fires once on release - spring back to center
-                  client.println("}");
-                  client.println("setupArcadeRange('steerRange'," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
-
-                  client.println("function setupThrottleTrack(ch, min, center, max) {");
-                  client.println("  var track = document.getElementById('throttleTrack'), thumb = document.getElementById('throttleThumb');");
+                  client.println("function setupArcadeTrack(trackId, thumbId, horizontal, ch, min, center, max) {");
+                  client.println("  var track = document.getElementById(trackId), thumb = document.getElementById(thumbId);");
                   client.println("  var dragging = false, activePointerId = null, lastSent = 0, rect = track.getBoundingClientRect(), pendingVal = center, rafScheduled = false;");
                   client.println("  function valueFromPointer(e) {");
-                  client.println("    var frac = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));");
+                  client.println("    var frac = horizontal ? (e.clientX - rect.left) / rect.width : 1 - (e.clientY - rect.top) / rect.height;");
+                  client.println("    frac = Math.max(0, Math.min(1, frac));");
                   client.println("    return Math.round(frac >= 0.5 ? center + (frac - 0.5) * 2 * (max - center) : center - (0.5 - frac) * 2 * (center - min));");
                   client.println("  }");
                   client.println("  function setThumb(val) {");
                   client.println("    var frac = Math.max(0, Math.min(1, val >= center ? 0.5 + 0.5 * (val - center) / (max - center) : 0.5 - 0.5 * (center - val) / (center - min)));");
-                  client.println("    thumb.style.transform = 'translateY(' + (-(frac - 0.5) * rect.height) + 'px)';");
+                  client.println("    var offset = (frac - 0.5) * (horizontal ? rect.width : rect.height);");
+                  client.println("    thumb.style.transform = horizontal ? ('translateX(' + offset + 'px)') : ('translateY(' + (-offset) + 'px)');");
                   client.println("  }");
                   client.println("  function applyFrame() {");
                   client.println("    rafScheduled = false;");
@@ -521,10 +504,8 @@ void webInterface()
                   client.println("    var now = Date.now();");
                   client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }");
                   client.println("  }");
-                  // No setPointerCapture() - grabbing steer (native input) first, then throttle
-                  // (this custom track) left steer completely unresponsive, order-dependent, which
-                  // pointed at a capture/native-input interaction bug rather than a hardware limit.
-                  // Tracking the pointer by ID on window instead avoids relying on capture semantics.
+                  // Pointer tracked by ID via window listeners, no setPointerCapture() - both were
+                  // tried and ruled out as the cause of the order-dependent bug described above.
                   client.println("  function onMove(e) {");
                   client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
                   client.println("    pendingVal = valueFromPointer(e);");
@@ -547,7 +528,8 @@ void webInterface()
                   client.println("  window.addEventListener('pointercancel', onEnd);");
                   client.println("  setThumb(center);");
                   client.println("}");
-                  client.println("setupThrottleTrack(" + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("setupArcadeTrack('steerTrack','steerThumb',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
+                  client.println("setupArcadeTrack('throttleTrack','throttleThumb',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
                   client.println("</script>");
                   break;
                 }
