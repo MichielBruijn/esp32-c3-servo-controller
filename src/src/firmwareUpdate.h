@@ -188,6 +188,16 @@ bool installFirmwareUpdate()
       return false;
     }
 
+    Update.onProgress([](size_t written, size_t total)
+                       {
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 15, "Updating...");
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 35, String((written * 100) / total) + "%");
+      display.display(); });
+
     WiFiClient *stream = https.getStreamPtr();
     size_t written = Update.writeStream(*stream);
     bool writtenOk = (written == (size_t)contentLength);
