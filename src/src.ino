@@ -710,7 +710,7 @@ void wifiStationFinishConnected()
 void wifiStartAccessPoint()
 {
   Serial.println(connectingAccessPointString[LANGUAGE]);
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_AP); // pure AP - no STA component trying to (re)connect to a stored home network in the background
   setWifiChannelRange(); // allow channels 12/13, not just the default-region 1-11
   WiFi.softAP(ssid, password);
 
