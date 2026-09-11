@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.02"; // Software revision.
+char codeVersion[] = "1.03"; // Software revision.
 
 //
 // =======================================================================================================
@@ -108,7 +108,7 @@ using namespace std;
 #define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
 #define SERVO_MODE_GROUP_DATA_START (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
 #define JOYSTICK_LINK_DATA_START (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
-#define EEPROM_SIZE (JOYSTICK_LINK_DATA_START + 12) // + Joystick link masks (2 ints) and steering limit (1 int), appended after so existing data never shifts
+#define EEPROM_SIZE (JOYSTICK_LINK_DATA_START + 16) // + Joystick link masks (2 ints), steering limit (1 int) and its on/off flag (1 int), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actual factory reset is applied
@@ -116,7 +116,7 @@ bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actu
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 8         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 9         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
@@ -125,6 +125,7 @@ bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actu
 #define adr_eprom_JOYSTICK_X_LINK_MASK JOYSTICK_LINK_DATA_START     // Bitmask: additional channels mirroring Steer, beyond JOYSTICK_X_CHANNEL itself
 #define adr_eprom_JOYSTICK_Y_LINK_MASK (JOYSTICK_LINK_DATA_START + 4) // Same, for Throttle
 #define adr_eprom_STEERING_LIMIT (JOYSTICK_LINK_DATA_START + 8)     // 0-100%: how much Steer is progressively cut as Throttle deflection increases
+#define adr_eprom_STEERING_LIMIT_ENABLED (JOYSTICK_LINK_DATA_START + 12) // Quick on/off for the above, toggled from the Joystick Mode web page without changing the configured strength
 // Addresses 12, 16, 20 used to hold a single deprecated SERVO_MIN/CENTER/Hz scalar - unused, free
 #define adr_eprom_POWER_SCALE 24        // Skalierung für Akkuspannungs-Messung
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
@@ -193,6 +194,7 @@ int JOYSTICK_Y_CHANNEL;
 int JOYSTICK_X_LINK_MASK; // Bitmask (bit n = channel n) of ADDITIONAL channels driven in parallel with Steer, beyond JOYSTICK_X_CHANNEL itself
 int JOYSTICK_Y_LINK_MASK; // Same, for Throttle
 int STEERING_LIMIT;       // 0-100%: how much Steer deflection is progressively cut as Throttle deflection increases (either direction). 0 = off
+int STEERING_LIMIT_ENABLED; // Quick on/off for the above (Joystick Mode web page checkbox), independent of the configured strength above
 int lastRawSteerTarget = -1; // Last raw (pre-limit) Steer target in µs, -1 = none yet (Throttle-only updates don't reapply the limit until Steer has been touched once)
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
@@ -441,7 +443,8 @@ void applySteerOutput(int rawSteerValue)
 
   int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
   int center = SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][mode];
-  float scale = 1.0f - (STEERING_LIMIT / 100.0f) * throttleDeflectionFraction();
+  int effectiveLimit = STEERING_LIMIT_ENABLED ? STEERING_LIMIT : 0;
+  float scale = 1.0f - (effectiveLimit / 100.0f) * throttleDeflectionFraction();
   int limited = constrain((int)round(center + (rawSteerValue - center) * scale),
                           SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][mode], SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][mode]);
 
@@ -2572,6 +2575,7 @@ void eepromInit()
     JOYSTICK_X_LINK_MASK = 0;
     JOYSTICK_Y_LINK_MASK = 0;
     STEERING_LIMIT = 0;
+    STEERING_LIMIT_ENABLED = 1;
     // SERVO_STEPS = 10;
     // SERVO_MAX = 2000;
     // SERVO_MIN = 1000;
@@ -2623,6 +2627,7 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_JOYSTICK_X_LINK_MASK, JOYSTICK_X_LINK_MASK);
   EEPROM.writeInt(adr_eprom_JOYSTICK_Y_LINK_MASK, JOYSTICK_Y_LINK_MASK);
   EEPROM.writeInt(adr_eprom_STEERING_LIMIT, STEERING_LIMIT);
+  EEPROM.writeInt(adr_eprom_STEERING_LIMIT_ENABLED, STEERING_LIMIT_ENABLED);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
@@ -2710,6 +2715,11 @@ void eepromRead()
   JOYSTICK_X_LINK_MASK = joystickLinkFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_LINK_MASK);
   JOYSTICK_Y_LINK_MASK = joystickLinkFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_LINK_MASK);
   STEERING_LIMIT = joystickLinkFieldsNeedDefaulting ? 0 : constrain(EEPROM.readInt(adr_eprom_STEERING_LIMIT), 0, 100);
+
+  // The Steering Limit on/off flag was introduced separately at layout version 9 - default it to
+  // "on" (matching pre-v9 behavior, where the % alone controlled everything) rather than 0/off.
+  bool steeringLimitEnabledNeedsDefaulting = (storedLayoutVersion < 9);
+  STEERING_LIMIT_ENABLED = steeringLimitEnabledNeedsDefaulting ? 1 : EEPROM.readInt(adr_eprom_STEERING_LIMIT_ENABLED);
 
   // Mode (and Hz) used to be one single value shared by every channel, at the now-unused address 44.
   // Split into one value per timer group at layout version 6 - seed all 3 groups from that old shared

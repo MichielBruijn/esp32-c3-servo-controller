@@ -360,6 +360,17 @@ void webInterface()
                 valueString = header.substring(pos1 + 1, pos2);
                 STEERING_LIMIT = constrain(valueString.toInt(), 0, 100);
               }
+              // Quick on/off toggle from the Joystick Mode driving page - doesn't touch the
+              // configured strength above, and isn't gated behind a Save (takes effect immediately,
+              // like the joystick controls themselves).
+              if (header.indexOf("GET /?SteerLimitOn=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                STEERING_LIMIT_ENABLED = constrain(valueString.toInt(), 0, 1);
+                xhrOnly = true;
+              }
               // Home WiFi credentials for Station mode - URL-decoded and length-capped to fit the
               // reserved EEPROM slots (32 chars SSID / 64 chars password), so an oversized value
               // can never spill into the neighbouring field.
@@ -616,6 +627,7 @@ void webInterface()
                   client.println("<style>");
                   client.println("body{margin:0;overflow:hidden;}");
                   client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
+                  client.println(".arcadeCheck{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.7);padding:4px 10px;border-radius:8px;user-select:none;}");
                   // touch-action:none so 2 fingers on the tracks drive both controls instead of the
                   // browser's default pinch-to-zoom gesture. Earlier removed while chasing the
                   // native/custom mix bug (a different issue, now fixed by dropping the native
@@ -626,7 +638,9 @@ void webInterface()
                   client.println("#throttleTrack{left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;}");
                   client.println("</style>");
 
-                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a></div>");
+                  client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a>");
+                  client.println("<label class=\"arcadeCheck\"><input type=\"checkbox\" id=\"steerLimitCheck\" onchange=\"toggleSteerLimit(this.checked)\"" + String(STEERING_LIMIT_ENABLED ? " checked" : "") + " />Steering Limit</label>");
+                  client.println("</div>");
                   client.println("<div class=\"arcadeTrack\" id=\"steerTrack\"><div class=\"arcadeThumb\" id=\"steerThumb\"></div></div>");
                   client.println("<div class=\"arcadeTrack\" id=\"throttleTrack\"><div class=\"arcadeThumb\" id=\"throttleThumb\"></div></div>");
 
@@ -682,6 +696,7 @@ void webInterface()
                   client.println("}");
                   client.println("setupArcadeTrack('steerTrack','steerThumb',true," + String(JOYSTICK_X_CHANNEL) + "," + String(steerMin) + "," + String(steerCenterVal) + "," + String(steerMax) + ");");
                   client.println("setupArcadeTrack('throttleTrack','throttleThumb',false," + String(JOYSTICK_Y_CHANNEL) + "," + String(throttleMin) + "," + String(throttleCenterVal) + "," + String(throttleMax) + ");");
+                  client.println("function toggleSteerLimit(on) { fetch('/?SteerLimitOn=' + (on ? 1 : 0) + '&'); }");
                   client.println("</script>");
                   break;
                 }
