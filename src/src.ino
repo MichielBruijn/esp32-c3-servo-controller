@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.01"; // Software revision.
+char codeVersion[] = "1.02"; // Software revision.
 
 //
 // =======================================================================================================
@@ -107,7 +107,8 @@ using namespace std;
 #define WIFI_STA_DATA_START (SERVO_CHANNEL_DATA_END + NUM_SERVO_CHANNELS * 4) // + 4 bytes (1 int, degree range) per servo channel, appended after so existing channel data never shifts
 #define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
 #define SERVO_MODE_GROUP_DATA_START (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
-#define EEPROM_SIZE (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
+#define JOYSTICK_LINK_DATA_START (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
+#define EEPROM_SIZE (JOYSTICK_LINK_DATA_START + 12) // + Joystick link masks (2 ints) and steering limit (1 int), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actual factory reset is applied
@@ -115,12 +116,15 @@ bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actu
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 7         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 8         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
 #define adr_eprom_JOYSTICK_Y_CHANNEL (JOYSTICK_DATA_START + 4)
 #define adr_eprom_SERVO_MODE_GROUP(g) (SERVO_MODE_GROUP_DATA_START + (g)*4)
+#define adr_eprom_JOYSTICK_X_LINK_MASK JOYSTICK_LINK_DATA_START     // Bitmask: additional channels mirroring Steer, beyond JOYSTICK_X_CHANNEL itself
+#define adr_eprom_JOYSTICK_Y_LINK_MASK (JOYSTICK_LINK_DATA_START + 4) // Same, for Throttle
+#define adr_eprom_STEERING_LIMIT (JOYSTICK_LINK_DATA_START + 8)     // 0-100%: how much Steer is progressively cut as Throttle deflection increases
 // Addresses 12, 16, 20 used to hold a single deprecated SERVO_MIN/CENTER/Hz scalar - unused, free
 #define adr_eprom_POWER_SCALE 24        // Skalierung für Akkuspannungs-Messung
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
@@ -186,6 +190,10 @@ const unsigned long UPDATE_CHECK_INTERVAL_MS = 6UL * 60 * 60 * 1000; // Re-check
 // of the web-only Joystick Mode control.
 int JOYSTICK_X_CHANNEL;
 int JOYSTICK_Y_CHANNEL;
+int JOYSTICK_X_LINK_MASK; // Bitmask (bit n = channel n) of ADDITIONAL channels driven in parallel with Steer, beyond JOYSTICK_X_CHANNEL itself
+int JOYSTICK_Y_LINK_MASK; // Same, for Throttle
+int STEERING_LIMIT;       // 0-100%: how much Steer deflection is progressively cut as Throttle deflection increases (either direction). 0 = off
+int lastRawSteerTarget = -1; // Last raw (pre-limit) Steer target in µs, -1 = none yet (Throttle-only updates don't reapply the limit until Steer has been touched once)
 String wifiIpString = ""; // AP/Station IP address, filled in wifiSetup(), shown in the Wifi Info screen
 int SERVO_STEPS;        // Deprecated, calculated automaticallly
 int SERVO_MAX;          // Deprecated, controlled by servoModes.h
@@ -376,6 +384,97 @@ WebSocketsServer webSocket(81);
 // Handle incoming WebSocket frames - the only message this expects is "Pos<ch>=<value>",
 // e.g. "Pos0=1500", mirroring the /?Pos0= HTTP query key. The browser already clamps to that
 // channel's calibrated Min/Max via the slider's own min/max attributes, same as the HTTP path.
+// Joystick channel linking + speed-sensitive Steering Limit -------------------------------------
+// Each channel can have its own Min/Center/Max calibration (even within the same mode), so a value
+// can't just be copied verbatim between linked channels - it's translated via its normalized
+// deflection from center instead, so e.g. two steering servos with different end points still
+// move symmetrically.
+int remapServoPos(int value, uint8_t fromCh, uint8_t toCh)
+{
+  // Note: servoCenterForChannel() (servoModes.h) isn't usable here yet - that header is #included
+  // further down the sketch, so its function isn't declared this early in the translation unit.
+  int fromMode = SERVO_MODE_PER_GROUP[servoTimerGroup(fromCh)];
+  int fromCenter = SERVO_CENTER_BY_MODE[fromCh][fromMode];
+  int toMode = SERVO_MODE_PER_GROUP[servoTimerGroup(toCh)];
+  int toCenter = SERVO_CENTER_BY_MODE[toCh][toMode];
+  int toMin = SERVO_MIN_BY_MODE[toCh][toMode];
+  int toMax = SERVO_MAX_BY_MODE[toCh][toMode];
+
+  if (value >= fromCenter)
+  {
+    int fromMax = SERVO_MAX_BY_MODE[fromCh][fromMode];
+    float frac = (fromMax != fromCenter) ? (float)(value - fromCenter) / (fromMax - fromCenter) : 0;
+    return constrain((int)round(toCenter + frac * (toMax - toCenter)), toMin, toMax);
+  }
+  else
+  {
+    int fromMin = SERVO_MIN_BY_MODE[fromCh][fromMode];
+    float frac = (fromCenter != fromMin) ? (float)(fromCenter - value) / (fromCenter - fromMin) : 0;
+    return constrain((int)round(toCenter - frac * (toCenter - toMin)), toMin, toMax);
+  }
+}
+
+// How far (0-1) the Throttle channel is currently deflected from its center, in either direction.
+float throttleDeflectionFraction()
+{
+  int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+  int center = SERVO_CENTER_BY_MODE[JOYSTICK_Y_CHANNEL][mode];
+  int pos = servo_pos[JOYSTICK_Y_CHANNEL];
+  if (pos >= center)
+  {
+    int max = SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][mode];
+    return (max != center) ? constrain((float)(pos - center) / (max - center), 0.0f, 1.0f) : 0;
+  }
+  else
+  {
+    int min = SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][mode];
+    return (center != min) ? constrain((float)(center - pos) / (center - min), 0.0f, 1.0f) : 0;
+  }
+}
+
+// Apply the Steering Limit (reduces Steer deflection as Throttle deflection increases, symmetric
+// forward/reverse) to a raw Steer target, then write the result to the primary Steer channel plus
+// any linked channels.
+void applySteerOutput(int rawSteerValue)
+{
+  lastRawSteerTarget = rawSteerValue;
+
+  int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
+  int center = SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][mode];
+  float scale = 1.0f - (STEERING_LIMIT / 100.0f) * throttleDeflectionFraction();
+  int limited = constrain((int)round(center + (rawSteerValue - center) * scale),
+                          SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][mode], SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][mode]);
+
+  servo_pos[JOYSTICK_X_CHANNEL] = limited;
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    if (ch != JOYSTICK_X_CHANNEL && (JOYSTICK_X_LINK_MASK & (1 << ch)))
+    {
+      servo_pos[ch] = remapServoPos(limited, JOYSTICK_X_CHANNEL, ch);
+    }
+  }
+}
+
+// Mirror a raw Throttle target to the primary channel plus any linked channels, then re-apply the
+// Steering Limit using the last known Steer target - so Steer re-scales immediately when only
+// Throttle changes, without needing to touch the Steer control too.
+void applyThrottleOutput(int rawThrottleValue)
+{
+  servo_pos[JOYSTICK_Y_CHANNEL] = rawThrottleValue;
+  for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+  {
+    if (ch != JOYSTICK_Y_CHANNEL && (JOYSTICK_Y_LINK_MASK & (1 << ch)))
+    {
+      servo_pos[ch] = remapServoPos(rawThrottleValue, JOYSTICK_Y_CHANNEL, ch);
+    }
+  }
+
+  if (lastRawSteerTarget >= 0)
+  {
+    applySteerOutput(lastRawSteerTarget);
+  }
+}
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
   if (type != WStype_TEXT)
@@ -395,7 +494,18 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       int value = msg.substring(equalsPos + 1).toInt();
       if (ch >= 0 && ch < NUM_SERVO_CHANNELS)
       {
-        servo_pos[ch] = value;
+        if (ch == JOYSTICK_X_CHANNEL)
+        {
+          applySteerOutput(value);
+        }
+        else if (ch == JOYSTICK_Y_CHANNEL)
+        {
+          applyThrottleOutput(value);
+        }
+        else
+        {
+          servo_pos[ch] = value;
+        }
       }
     }
   }
@@ -1062,9 +1172,9 @@ String settingsGroupName(int item)
     return "Encoder";
   if (item == 9)
     return "Speed";
-  if (item <= 11)
-    return "Joystick"; // Steer, Throttle
-  if (item <= 13)
+  if (item <= 12)
+    return "Joystick"; // Steer, Throttle, Steering Limit
+  if (item <= 14)
     return "WiFi"; // On/Off, Mode
   return "Factory Reset";
 }
@@ -1946,7 +2056,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     {
       String groupName = settingsGroupName(SettingsItem);
-      display.drawString(64, 0, SettingsItem == 0 ? ("  " + groupName + " >") : (SettingsItem == 14 ? ("< " + groupName + "  ") : ("< " + groupName + " >")));
+      display.drawString(64, 0, SettingsItem == 0 ? ("  " + groupName + " >") : (SettingsItem == 15 ? ("< " + groupName + "  ") : ("< " + groupName + " >")));
     }
     switch (SettingsItem)
     {
@@ -2041,6 +2151,10 @@ void MenuUpdate()
       display.drawString(64, 37, "CH" + String(JOYSTICK_Y_CHANNEL + 1));
       break;
     case 12:
+      display.drawString(64, 17, "Steering Limit");
+      display.drawString(64, 37, String(STEERING_LIMIT) + "%");
+      break;
+    case 13:
       display.drawString(64, 17, "On/Off");
       if (WIFI_ON == 1)
       {
@@ -2051,7 +2165,7 @@ void MenuUpdate()
         display.drawString(64, 37, offString[LANGUAGE]);
       }
       break;
-    case 13:
+    case 14:
       display.drawString(64, 17, "Mode");
       if (WIFI_MODE == WIFI_STATION_MODE)
       {
@@ -2062,7 +2176,7 @@ void MenuUpdate()
         display.drawString(64, 37, "Access Point");
       }
       break;
-    case 14:
+    case 15:
       // No text label here - the header already says "Factory Reset"
       if (RESET_EEPROM == 1)
       {
@@ -2139,14 +2253,17 @@ void MenuUpdate()
           JOYSTICK_Y_CHANNEL--;
           break;
         case 12:
+          STEERING_LIMIT -= 5;
+          break;
+        case 13:
           WIFI_ON--;
           WiFiChanged = true;
           break;
-        case 13:
+        case 14:
           WIFI_MODE--;
           WiFiChanged = true;
           break;
-        case 14:
+        case 15:
           RESET_EEPROM--;
           break;
         }
@@ -2200,14 +2317,17 @@ void MenuUpdate()
           JOYSTICK_Y_CHANNEL++;
           break;
         case 12:
+          STEERING_LIMIT += 5;
+          break;
+        case 13:
           WIFI_ON++;
           WiFiChanged = true;
           break;
-        case 13:
+        case 14:
           WIFI_MODE++;
           WiFiChanged = true;
           break;
-        case 14:
+        case 15:
           RESET_EEPROM++;
           break;
         }
@@ -2215,9 +2335,9 @@ void MenuUpdate()
     }
 
     // Menu range - clamp, don't wrap around, matching the top-level list's own boundary behavior
-    if (SettingsItem > 14)
+    if (SettingsItem > 15)
     {
-      SettingsItem = 14;
+      SettingsItem = 15;
     }
     else if (SettingsItem < 0)
     {
@@ -2239,6 +2359,7 @@ void MenuUpdate()
     WIFI_MODE = constrain(WIFI_MODE, WIFI_AP_MODE, WIFI_STATION_MODE);
     JOYSTICK_X_CHANNEL = constrain(JOYSTICK_X_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
     JOYSTICK_Y_CHANNEL = constrain(JOYSTICK_Y_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
+    STEERING_LIMIT = constrain(STEERING_LIMIT, 0, 100);
 
     if (LANGUAGE < 0)
     { // Language nicht unter 0
@@ -2448,6 +2569,9 @@ void eepromInit()
     STA_PASSWORD = ""; // Factory reset must not leave a saved home WiFi password behind
     JOYSTICK_X_CHANNEL = 0; // CH1
     JOYSTICK_Y_CHANNEL = 1; // CH2
+    JOYSTICK_X_LINK_MASK = 0;
+    JOYSTICK_Y_LINK_MASK = 0;
+    STEERING_LIMIT = 0;
     // SERVO_STEPS = 10;
     // SERVO_MAX = 2000;
     // SERVO_MIN = 1000;
@@ -2496,6 +2620,9 @@ void eepromWrite()
   EEPROM.writeString(adr_eprom_STA_PASSWORD, STA_PASSWORD);
   EEPROM.writeInt(adr_eprom_JOYSTICK_X_CHANNEL, JOYSTICK_X_CHANNEL);
   EEPROM.writeInt(adr_eprom_JOYSTICK_Y_CHANNEL, JOYSTICK_Y_CHANNEL);
+  EEPROM.writeInt(adr_eprom_JOYSTICK_X_LINK_MASK, JOYSTICK_X_LINK_MASK);
+  EEPROM.writeInt(adr_eprom_JOYSTICK_Y_LINK_MASK, JOYSTICK_Y_LINK_MASK);
+  EEPROM.writeInt(adr_eprom_STEERING_LIMIT, STEERING_LIMIT);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
@@ -2577,6 +2704,12 @@ void eepromRead()
   int joystickYChannelRaw = joystickFieldsNeedDefaulting ? 1 : EEPROM.readInt(addressesShiftedAtV7 ? adr_eprom_OLD_JOYSTICK_Y_CHANNEL : adr_eprom_JOYSTICK_Y_CHANNEL);
   JOYSTICK_X_CHANNEL = constrain(joystickXChannelRaw, 0, NUM_SERVO_CHANNELS - 1);
   JOYSTICK_Y_CHANNEL = constrain(joystickYChannelRaw, 0, NUM_SERVO_CHANNELS - 1);
+
+  // Joystick channel linking and Steering Limit were introduced at layout version 8.
+  bool joystickLinkFieldsNeedDefaulting = (storedLayoutVersion < 8);
+  JOYSTICK_X_LINK_MASK = joystickLinkFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_X_LINK_MASK);
+  JOYSTICK_Y_LINK_MASK = joystickLinkFieldsNeedDefaulting ? 0 : EEPROM.readInt(adr_eprom_JOYSTICK_Y_LINK_MASK);
+  STEERING_LIMIT = joystickLinkFieldsNeedDefaulting ? 0 : constrain(EEPROM.readInt(adr_eprom_STEERING_LIMIT), 0, 100);
 
   // Mode (and Hz) used to be one single value shared by every channel, at the now-unused address 44.
   // Split into one value per timer group at layout version 6 - seed all 3 groups from that old shared

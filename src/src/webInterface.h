@@ -335,6 +335,31 @@ void webInterface()
                 valueString = header.substring(pos1 + 1, pos2);
                 JOYSTICK_Y_CHANNEL = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
               }
+              // Additional channels driven in parallel with Steer/Throttle (e.g. two steering
+              // servos) - toggled one at a time, each remapped to its own calibration.
+              if (header.indexOf("GET /?JoyXLink=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
+                JOYSTICK_X_LINK_MASK ^= (1 << ch);
+              }
+              if (header.indexOf("GET /?JoyYLink=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
+                JOYSTICK_Y_LINK_MASK ^= (1 << ch);
+              }
+              if (header.indexOf("GET /?SteerLimit=") >= 0)
+              {
+                pos1 = header.indexOf('=');
+                pos2 = header.indexOf('&');
+                valueString = header.substring(pos1 + 1, pos2);
+                STEERING_LIMIT = constrain(valueString.toInt(), 0, 100);
+              }
               // Home WiFi credentials for Station mode - URL-decoded and length-capped to fit the
               // reserved EEPROM slots (32 chars SSID / 64 chars password), so an oversized value
               // can never spill into the neighbouring field.
@@ -918,6 +943,19 @@ void webInterface()
                 }
                 client.println("</p>");
 
+                // Additional channels mirrored in parallel with Steer (e.g. a second steering
+                // servo) - each remapped via its own Min/Center/Max, so it stays symmetric even
+                // if its calibration differs from the primary channel's.
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Also drive these channels in parallel with Steer:</p><p>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  if (ch == JOYSTICK_X_CHANNEL)
+                    continue;
+                  String activeClass = (JOYSTICK_X_LINK_MASK & (1 << ch)) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyXLink=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
+
                 client.println("<p><h3>Throttle -&gt; Channel</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
@@ -925,6 +963,29 @@ void webInterface()
                   client.println("<a href=\"/?JoyY=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
                 }
                 client.println("</p>");
+
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Also drive these channels in parallel with Throttle:</p><p>");
+                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
+                {
+                  if (ch == JOYSTICK_Y_CHANNEL)
+                    continue;
+                  String activeClass = (JOYSTICK_Y_LINK_MASK & (1 << ch)) ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyYLink=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                }
+                client.println("</p>");
+
+                // Steering Limit: progressively reduces Steer deflection as Throttle deflection
+                // increases (either direction) - keeps full steering lock for parking-speed
+                // maneuvers, but backs it off as the throttle command grows, since actual road
+                // speed itself isn't something this tester can measure.
+                valueString = String(STEERING_LIMIT);
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Reduces Steer deflection as Throttle moves away from center (forward or reverse). 0% = off.</p>");
+                client.println("<p><h3>Steering Limit: <span id=\"textSteerLimitValue\">" + valueString + "</span>%</h3>");
+                client.println("<input type=\"range\" min=\"0\" max=\"100\" step=\"1\" class=\"slider\" id=\"SteerLimitSlider\" oninput=\"SteerLimitChange(this.value)\" value=\"" + valueString + "\" /></p>");
+                client.println("<script> function SteerLimitChange(pos) { ");
+                client.println("document.getElementById(\"textSteerLimitValue\").innerHTML = pos;");
+                client.println("sendThrottled('SteerLimit', \"/?SteerLimit=\" + pos + \"&\");");
+                client.println("} </script>");
 
                 client.println("</div><div class=\"settingsGroup\"><h3>WiFi</h3>");
                 // WiFi on/off --------------------------------------------
