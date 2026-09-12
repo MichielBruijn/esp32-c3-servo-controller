@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.10"; // Software revision.
+char codeVersion[] = "1.11"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1979,6 +1979,9 @@ void MenuUpdate()
       InfoPage = 0;
     }
 
+    // Check and install are one if/else, not two independent ifs - both used to fire on the
+    // same buttonState==2 within the same pass, so a check that found an update fell straight
+    // through into installing it immediately, with no separate confirmation press in between.
     if (buttonState == 2 && InfoPage == 2 && !updateAvailable) // Short press: check now instead of waiting for the periodic 6h check
     {
       // Silence the click-beep immediately - beep() (which normally turns it back off after
@@ -1995,8 +1998,7 @@ void MenuUpdate()
       checkForFirmwareUpdate();
       lastUpdateCheckMillis = millis(); // Don't let the periodic check immediately fire again right after this manual one
     }
-
-    if (buttonState == 2 && InfoPage == 2 && updateAvailable)
+    else if (buttonState == 2 && InfoPage == 2 && updateAvailable)
     {
       if (!installFirmwareUpdate()) // Blocks; restarts the device on success, returns on failure
       {
