@@ -153,9 +153,9 @@ void readProbe()
     while (sampleNo < arraySize)
     {
 #if defined FAST_ADC
-      myArray[sampleNo] = local_adc1_read(ADC1_CHANNEL_3); // Super fast custom analogRead() alterantive
+      myArray[sampleNo] = local_adc1_read(adcCh); // Super fast custom analogRead() alterantive
 #else
-      myArray[sampleNo] = adc1_get_raw(ADC1_CHANNEL_3);                        // slower, but also working, if WiFi is disabled
+      myArray[sampleNo] = adc1_get_raw(adcCh);                        // slower, but also working, if WiFi is disabled
 #endif
       sampleNo++;
       int64_t m = esp_timer_get_time(); // slim replacement vor delayMicroseconds()
@@ -255,7 +255,7 @@ void drawDisplay()
     // Readings on top of display
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(displayWidth, 0, "P" + String(oscChannel + 1) + " " + String(vPP) + "vPP"); // Show active probe + peak to peak voltage
+    display.drawString(displayWidth, 0, String(vPP) + "vPP"); // Show peak to peak voltage
 
     if (triggerLevel > 0)
     { // if trigger is active
@@ -263,8 +263,10 @@ void drawDisplay()
       display.drawString(displayWidth / 2, 0, String(signalFrequency, 0) + "Hz"); // Show signal frequency
     }
 
+    // Left side has the most free room, so the active probe indicator goes here (TEXT_ALIGN_RIGHT
+    // grows leftward, so putting it there instead would push it into the centered Hz text)
     display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.drawString(0, 0, String(pulseWidth) + "µs"); // Show pulsewidth
+    display.drawString(0, 0, "P" + String(oscChannel + 1) + " " + String(pulseWidth) + "µs"); // Show active probe + pulsewidth
 
     // Popup window
     if (millis() - popupMillis < 1500)
