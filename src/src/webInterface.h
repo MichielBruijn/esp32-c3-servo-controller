@@ -321,38 +321,65 @@ void webInterface()
                   WiFiChanged = true;
                 }
               }
-              if (header.indexOf("GET /?JoyX=") >= 0)
-              {
-                pos1 = header.indexOf('=');
-                pos2 = header.indexOf('&');
-                valueString = header.substring(pos1 + 1, pos2);
-                JOYSTICK_X_CHANNEL = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-              }
-              if (header.indexOf("GET /?JoyY=") >= 0)
-              {
-                pos1 = header.indexOf('=');
-                pos2 = header.indexOf('&');
-                valueString = header.substring(pos1 + 1, pos2);
-                JOYSTICK_Y_CHANNEL = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-              }
-              // Additional channels driven in parallel with Steer/Throttle (e.g. two steering
-              // servos) - toggled one at a time, each remapped to its own calibration.
-              if (header.indexOf("GET /?JoyXLink=") >= 0)
+              // Joystick channel membership: one flat toggle per channel button (see the single-row
+              // rendering below). JOYSTICK_X_CHANNEL/JOYSTICK_Y_CHANNEL keep acting as "the" reference
+              // channel internally (its own calibration is what raw drag values are scaled against -
+              // see applySteerOutput/applyThrottleOutput/remapServoPos), with JOYSTICK_X/Y_LINK_MASK
+              // holding any others - but that split is invisible here: toggling the reference channel
+              // off just promotes the next active one, and toggling the last remaining channel off is
+              // a no-op, since a control always needs at least one channel to drive.
+              if (header.indexOf("GET /?JoyXSet=") >= 0)
               {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-                JOYSTICK_X_LINK_MASK ^= (1 << ch);
+                if (ch == JOYSTICK_X_CHANNEL)
+                {
+                  if (JOYSTICK_X_LINK_MASK != 0)
+                  {
+                    for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
+                    {
+                      if (JOYSTICK_X_LINK_MASK & (1 << c))
+                      {
+                        JOYSTICK_X_CHANNEL = c;
+                        JOYSTICK_X_LINK_MASK &= ~(1 << c);
+                        break;
+                      }
+                    }
+                  }
+                }
+                else
+                {
+                  JOYSTICK_X_LINK_MASK ^= (1 << ch);
+                }
                 eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
               }
-              if (header.indexOf("GET /?JoyYLink=") >= 0)
+              if (header.indexOf("GET /?JoyYSet=") >= 0)
               {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-                JOYSTICK_Y_LINK_MASK ^= (1 << ch);
+                if (ch == JOYSTICK_Y_CHANNEL)
+                {
+                  if (JOYSTICK_Y_LINK_MASK != 0)
+                  {
+                    for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
+                    {
+                      if (JOYSTICK_Y_LINK_MASK & (1 << c))
+                      {
+                        JOYSTICK_Y_CHANNEL = c;
+                        JOYSTICK_Y_LINK_MASK &= ~(1 << c);
+                        break;
+                      }
+                    }
+                  }
+                }
+                else
+                {
+                  JOYSTICK_Y_LINK_MASK ^= (1 << ch);
+                }
                 eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
               }
               if (header.indexOf("GET /?SteerLimit=") >= 0)
@@ -963,43 +990,25 @@ void webInterface()
                 client.println("} </script>");
 
                 client.println("</div><div class=\"settingsGroup\"><h3>Joystick</h3>");
-                // Joystick Mode channel mapping (which channel each control drives) -----
-                client.println("<p><h3>Steer -&gt; Channel</h3>");
+                // Joystick Mode channel mapping - one flat row per control, each channel simply on
+                // (drives with this control) or off. Internally one active channel still acts as the
+                // calibration reference for the others (see JoyXSet/JoyYSet below), but that's just
+                // bookkeeping - the user only sees a set of channels moving together.
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Channels driven together by Steer:</p><p><h3>Steer</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
-                  String activeClass = (ch == JOYSTICK_X_CHANNEL) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyX=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                  bool active = (ch == JOYSTICK_X_CHANNEL) || (JOYSTICK_X_LINK_MASK & (1 << ch));
+                  String activeClass = active ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyXSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
                 }
                 client.println("</p>");
 
-                // Additional channels mirrored in parallel with Steer (e.g. a second steering
-                // servo) - each remapped via its own Min/Center/Max, so it stays symmetric even
-                // if its calibration differs from the primary channel's.
-                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Also drive these channels in parallel with Steer:</p><p>");
+                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Channels driven together by Throttle:</p><p><h3>Throttle</h3>");
                 for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
                 {
-                  if (ch == JOYSTICK_X_CHANNEL)
-                    continue;
-                  String activeClass = (JOYSTICK_X_LINK_MASK & (1 << ch)) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyXLink=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
-                }
-                client.println("</p>");
-
-                client.println("<p><h3>Throttle -&gt; Channel</h3>");
-                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
-                {
-                  String activeClass = (ch == JOYSTICK_Y_CHANNEL) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyY=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
-                }
-                client.println("</p>");
-
-                client.println("<p style=\"font-size:12px;opacity:0.7;margin-top:0;\">Also drive these channels in parallel with Throttle:</p><p>");
-                for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
-                {
-                  if (ch == JOYSTICK_Y_CHANNEL)
-                    continue;
-                  String activeClass = (JOYSTICK_Y_LINK_MASK & (1 << ch)) ? "buttonActive" : "button3";
-                  client.println("<a href=\"/?JoyYLink=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                  bool active = (ch == JOYSTICK_Y_CHANNEL) || (JOYSTICK_Y_LINK_MASK & (1 << ch));
+                  String activeClass = active ? "buttonActive" : "button3";
+                  client.println("<a href=\"/?JoyYSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
                 }
                 client.println("</p>");
 
