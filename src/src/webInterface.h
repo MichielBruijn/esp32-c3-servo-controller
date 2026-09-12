@@ -634,8 +634,11 @@ void webInterface()
                   // custom implementation for both avoids the mix entirely.
                   client.println("<style>");
                   client.println("body{margin:0;overflow:hidden;}");
-                  client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
-                  client.println(".arcadeCheck{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.7);padding:4px 10px;border-radius:8px;user-select:none;}");
+                  client.println(".arcadeBar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;padding:8px 16px;z-index:2;font-size:14px;color:#333;}");
+                  // Centered independently of the Menu button via absolute positioning (rather than
+                  // flex justify-content:space-between, which pinned it to the far right) - freeing
+                  // up the right edge is what let the throttle track below grow taller.
+                  client.println(".arcadeCheck{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.7);padding:4px 10px;border-radius:8px;user-select:none;}");
                   // touch-action:none so 2 fingers on the tracks drive both controls instead of the
                   // browser's default pinch-to-zoom gesture. Earlier removed while chasing the
                   // native/custom mix bug (a different issue, now fixed by dropping the native
@@ -643,7 +646,7 @@ void webInterface()
                   client.println(".arcadeTrack{position:fixed;background:#d3d3d3;border-radius:20px;user-select:none;touch-action:none;}");
                   client.println(".arcadeThumb{position:absolute;top:50%;left:50%;width:60px;height:60px;margin-top:-30px;margin-left:-30px;border-radius:50%;background:#4CAF50;box-shadow:0 2px 6px rgba(0,0,0,0.4);will-change:transform;}");
                   client.println("#steerTrack{left:5vw;width:39vw;height:70px;top:50%;margin-top:-35px;}");
-                  client.println("#throttleTrack{left:82vw;top:50%;width:70px;height:50vh;margin-left:-35px;margin-top:-25vh;}");
+                  client.println("#throttleTrack{left:82vw;top:50%;width:70px;height:64vh;margin-left:-35px;margin-top:-32vh;}");
                   client.println("</style>");
 
                   client.println("<div class=\"arcadeBar\"><a href=\"/back/on\"><button class=\"button button2\">Menu</button></a>");
