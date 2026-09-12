@@ -167,12 +167,19 @@ void webInterface()
               bool xhrOnly = false;
 
               // GET /?Pos0=1500& HTTP/1.1
+              // While webJoystickMode is active, this is the low-latency websocket's fallback path
+              // (used whenever posSocket isn't connected/ready - see sendPos() below) for Joystick
+              // Mode's own touch tracks, same as the "PosJ" websocket messages - so it must feed the
+              // loop() failsafe too, or a dropped/reconnecting socket makes every fallback update get
+              // immediately fought back to center by that failsafe before the next one can land,
+              // which looks like Joystick Mode not responding at all.
               if (header.indexOf("GET /?Pos0=") >= 0)
               {
                 pos1 = header.indexOf('=');
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[0] = (valueString.toInt());
+                if (webJoystickMode) lastJoystickMsgMillis = millis();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos1=") >= 0)
@@ -181,6 +188,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[1] = (valueString.toInt());
+                if (webJoystickMode) lastJoystickMsgMillis = millis();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos2=") >= 0)
@@ -189,6 +197,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[2] = (valueString.toInt());
+                if (webJoystickMode) lastJoystickMsgMillis = millis();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos3=") >= 0)
@@ -197,6 +206,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[3] = (valueString.toInt());
+                if (webJoystickMode) lastJoystickMsgMillis = millis();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Pos4=") >= 0)
@@ -205,6 +215,7 @@ void webInterface()
                 pos2 = header.indexOf('&');
                 valueString = header.substring(pos1 + 1, pos2);
                 servo_pos[4] = (valueString.toInt());
+                if (webJoystickMode) lastJoystickMsgMillis = millis();
                 xhrOnly = true;
               }
               if (header.indexOf("GET /?Speed=") >= 0)
