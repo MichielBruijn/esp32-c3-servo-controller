@@ -572,8 +572,16 @@ void webInterface()
               client.println("  posSocket.onerror = function() { posSocketReady = false; };");
               client.println("}");
               client.println("connectPosSocket();");
-              client.println("function sendPos(ch, pos) {");
-              client.println("  if (posSocketReady && posSocket.readyState === 1) { posSocket.send('Pos' + ch + '=' + pos); }");
+              // isJoystick distinguishes Joystick Mode's touch tracks from Manual Mode's sliders,
+              // which otherwise send identical "Pos{ch}={value}" messages the server can't tell
+              // apart - channel linking/Steering Limit must only ever apply to the former, or
+              // dragging a linked channel's own slider in Manual Mode would also move its
+              // partner channel(s). Only distinguished over the websocket: the HTTP fallback
+              // already always writes the channel raw regardless of prefix, so there's no
+              // "PosJ" handler for it and it isn't needed - falling back briefly just means
+              // Joystick Mode temporarily loses linking until the socket reconnects.
+              client.println("function sendPos(ch, pos, isJoystick) {");
+              client.println("  if (posSocketReady && posSocket.readyState === 1) { posSocket.send((isJoystick ? 'PosJ' : 'Pos') + ch + '=' + pos); }");
               client.println("  else { sendThrottled('Pos' + ch, '/?Pos' + ch + '=' + pos + '&'); }");
               client.println("}");
               client.println("function toggleTheme() {");
@@ -663,7 +671,7 @@ void webInterface()
                   client.println("    if (!dragging) return;");
                   client.println("    setThumb(pendingVal);");
                   client.println("    var now = Date.now();");
-                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal); }");
+                  client.println("    if (now - lastSent >= 30) { lastSent = now; sendPos(ch, pendingVal, true); }");
                   client.println("  }");
                   // Pointer tracked by ID via window listeners, no setPointerCapture() - both were
                   // tried and ruled out as the cause of the order-dependent bug described above.
@@ -686,7 +694,7 @@ void webInterface()
                   client.println("  }");
                   client.println("  function onEnd(e) {");
                   client.println("    if (!dragging || e.pointerId !== activePointerId) return;");
-                  client.println("    dragging = false; activePointerId = null; pendingVal = center; setThumb(center); sendPos(ch, center);");
+                  client.println("    dragging = false; activePointerId = null; pendingVal = center; setThumb(center); sendPos(ch, center, true);");
                   client.println("  }");
                   client.println("  track.addEventListener('pointerdown', onStart);");
                   client.println("  window.addEventListener('pointermove', onMove);");
@@ -730,7 +738,7 @@ void webInterface()
                   client.println("pos = parseInt(pos);");
                   client.println("currentServo" + String(ch) + "Pos = pos;");
                   client.println("document.getElementById(\"textServo" + String(ch) + "SliderValue\").innerHTML = pos;");
-                  client.println("sendPos(" + String(ch) + ", pos);");
+                  client.println("sendPos(" + String(ch) + ", pos, false);");
                   client.println("}");
                   // Center button: update the slider and label instantly client-side (no page
                   // reload), reusing the same throttled endpoint the slider itself already uses -

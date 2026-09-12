@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.12"; // Software revision.
+char codeVersion[] = "1.13"; // Software revision.
 
 //
 // =======================================================================================================
@@ -493,12 +493,17 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   for (size_t i = 0; i < length; i++)
     msg += (char)payload[i];
 
-  if (msg.startsWith("Pos") && msg.length() > 4)
+  // "PosJ{ch}={value}" comes from the Joystick Mode touch tracks specifically - only those go
+  // through channel linking/Steering Limit. Plain "Pos{ch}={value}" (Manual Mode's sliders, which
+  // share the same underlying sendPos()/websocket) always writes the channel raw, even if it
+  // happens to be whichever channel is currently configured as Joystick Steer/Throttle - dragging
+  // that channel's own slider in Manual Mode shouldn't also move its linked partner channels.
+  if (msg.startsWith("PosJ") && msg.length() > 5)
   {
     int equalsPos = msg.indexOf('=');
-    if (equalsPos > 3)
+    if (equalsPos > 4)
     {
-      int ch = msg.substring(3, equalsPos).toInt();
+      int ch = msg.substring(4, equalsPos).toInt();
       int value = msg.substring(equalsPos + 1).toInt();
       if (ch >= 0 && ch < NUM_SERVO_CHANNELS)
       {
@@ -512,8 +517,21 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         }
         else
         {
-          servo_pos[ch] = value;
+          servo_pos[ch] = value; // Shouldn't normally happen - Joystick Mode only ever drives its 2 configured channels
         }
+      }
+    }
+  }
+  else if (msg.startsWith("Pos") && msg.length() > 4)
+  {
+    int equalsPos = msg.indexOf('=');
+    if (equalsPos > 3)
+    {
+      int ch = msg.substring(3, equalsPos).toInt();
+      int value = msg.substring(equalsPos + 1).toInt();
+      if (ch >= 0 && ch < NUM_SERVO_CHANNELS)
+      {
+        servo_pos[ch] = value;
       }
     }
   }
