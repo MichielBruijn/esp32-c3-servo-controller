@@ -37,6 +37,7 @@ int scopeOffsetY = -13; // shifted 13 pixels downwards to make room for text
 
 // Voltage measuring
 float voltMaxByChannel[2] = {5.45, 5.45}; // Assumes a 16.2k/24.9k voltage divider on both OSCILLOSCOPE_PIN and OSCILLOSCOPE_PIN2 (5V -> 3.03V each), scaled back up for the vPP readout
+int voltCalPermille[2] = {1000, 1000};    // Per-probe fine trim on top of voltMaxByChannel (x1000, e.g. 1000 = 1.000x), for divider resistor tolerance / ADC gain error. Persisted to EEPROM, adjustable live in the Oscilloscope screen
 int adcMax = 4095; // the maximum reading from the ADC 1023, but 4095 on ESP32!
 float vPP = 0;     // peak to peak voltage
 
@@ -64,8 +65,12 @@ adc1_channel_t currentOscAdcChannel()
 
 // Display
 unsigned long popupMillis;
-byte popupMode = 0; // 0 = sampling delay popup, 1 = channel switch popup
+byte popupMode = 0; // 0 = adjustable-value popup (see oscAdjustMode), 1 = probe switch popup
 bool takeNewSamples;
+
+// What the encoder currently adjusts, cycled with a short button press - like a real scope's
+// single "menu" knob doubling for several settings
+byte oscAdjustMode = 0; // 0 = sampling delay (timebase), 1 = trigger level, 2 = per-probe voltage calibration
 
 // menu
 byte menu = 1; // the current menu item
@@ -77,27 +82,35 @@ byte menu = 1; // the current menu item
 //
 void adjustADC()
 {
-
-  if (encoderState == 1)
+  if (buttonState == 2) // Short press: cycle what the encoder adjusts (timebase / trigger / voltage cal)
   {
-    samplingDelay -= 4;
-    popupMode = 0;
-    popupMillis = millis();
-  }
-  if (encoderState == 2)
-  {
-    samplingDelay += 4;
+    oscAdjustMode = (oscAdjustMode + 1) % 3;
     popupMode = 0;
     popupMillis = millis();
   }
 
-  if (buttonState == 2)
+  if (encoderState == 1 || encoderState == 2)
   {
+    int dir = (encoderState == 1) ? -1 : 1;
+    switch (oscAdjustMode)
+    {
+    case 0:
+      samplingDelay += dir * 4;
+      break;
+    case 1:
+      triggerLevel += dir * 64;
+      break;
+    case 2:
+      voltCalPermille[oscChannel] += dir * 5; // 0.5% steps
+      break;
+    }
     popupMode = 0;
-    popupMillis = millis(); // Show popup, if button clicked
+    popupMillis = millis();
   }
 
   samplingDelay = constrain(samplingDelay, 0, 300); // 160 for 50Hz
+  triggerLevel = constrain(triggerLevel, 100, 3990); // stay clear of the trigger-wait loops' strict 0/4095 edges
+  voltCalPermille[oscChannel] = constrain(voltCalPermille[oscChannel], 800, 1200); // +/-20%, plenty for resistor tolerance/ADC gain error
 }
 
 //
@@ -205,7 +218,7 @@ void readProbe()
     arrayMin = samplingArray.getMin();
     arrayMax = samplingArray.getMax();
     arrayAverage = samplingArray.getAverage();
-    vPP = (arrayMax - arrayMin) * voltMaxByChannel[oscChannel] / adcMax;
+    vPP = (arrayMax - arrayMin) * voltMaxByChannel[oscChannel] * voltCalPermille[oscChannel] / 1000.0 / adcMax;
   }
 }
 
@@ -283,8 +296,21 @@ void drawDisplay()
       }
       else
       {
-        display.drawString(64, 25, "Sampling delay");
-        display.drawString(64, 35, String(samplingDelay) + " µs"); // Show sampling delay
+        switch (oscAdjustMode)
+        {
+        case 0:
+          display.drawString(64, 25, "Sampling delay");
+          display.drawString(64, 35, String(samplingDelay) + " µs");
+          break;
+        case 1:
+          display.drawString(64, 25, "Trigger level");
+          display.drawString(64, 35, String(triggerLevel));
+          break;
+        case 2:
+          display.drawString(64, 25, "Volt cal P" + String(oscChannel + 1));
+          display.drawString(64, 35, String(voltCalPermille[oscChannel] / 1000.0, 3) + "x");
+          break;
+        }
       }
     }
 

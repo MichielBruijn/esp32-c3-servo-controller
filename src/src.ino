@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.07"; // Software revision.
+char codeVersion[] = "1.08"; // Software revision.
 
 //
 // =======================================================================================================
@@ -108,7 +108,8 @@ using namespace std;
 #define JOYSTICK_DATA_START (WIFI_STA_DATA_START + 34 + 66) // + Station SSID (34 bytes) and password (66 bytes), appended after so existing data never shifts
 #define SERVO_MODE_GROUP_DATA_START (JOYSTICK_DATA_START + 8) // + Joystick X/Y channel mapping (2 ints), appended after so existing data never shifts
 #define JOYSTICK_LINK_DATA_START (SERVO_MODE_GROUP_DATA_START + NUM_SERVO_TIMER_GROUPS * 4) // + per-timer-group mode (3 ints), appended after so existing data never shifts
-#define EEPROM_SIZE (JOYSTICK_LINK_DATA_START + 16) // + Joystick link masks (2 ints), steering limit (1 int) and its on/off flag (1 int), appended after so existing data never shifts
+#define OSCILLOSCOPE_CAL_DATA_START (JOYSTICK_LINK_DATA_START + 16) // + Joystick link masks (2 ints), steering limit (1 int) and its on/off flag (1 int), appended after so existing data never shifts
+#define EEPROM_SIZE (OSCILLOSCOPE_CAL_DATA_START + 8) // + per-probe oscilloscope voltage calibration (2 ints, x1000 fixed point), appended after so existing data never shifts
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actual factory reset is applied
@@ -116,7 +117,7 @@ bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actu
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
 #define adr_eprom_LAYOUT_VERSION 8      // Reused from the old deprecated SERVO_MAX scalar address, nothing else writes here anymore
-#define EEPROM_LAYOUT_VERSION 9         // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
+#define EEPROM_LAYOUT_VERSION 10        // Bump this whenever a field is added/moved, so eepromRead() knows to fill in sane defaults for it
 #define adr_eprom_STA_SSID WIFI_STA_DATA_START         // Up to 32 chars + null terminator, 34 bytes reserved
 #define adr_eprom_STA_PASSWORD (WIFI_STA_DATA_START + 34) // Up to 64 chars + null terminator, 66 bytes reserved
 #define adr_eprom_JOYSTICK_X_CHANNEL JOYSTICK_DATA_START
@@ -126,6 +127,7 @@ bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actu
 #define adr_eprom_JOYSTICK_Y_LINK_MASK (JOYSTICK_LINK_DATA_START + 4) // Same, for Throttle
 #define adr_eprom_STEERING_LIMIT (JOYSTICK_LINK_DATA_START + 8)     // 0-100%: how much Steer is progressively cut as Throttle deflection increases
 #define adr_eprom_STEERING_LIMIT_ENABLED (JOYSTICK_LINK_DATA_START + 12) // Quick on/off for the above, toggled from the Joystick Mode web page without changing the configured strength
+#define adr_eprom_OSC_VOLT_CAL(ch) (OSCILLOSCOPE_CAL_DATA_START + (ch)*4) // Per-probe voltCalPermille (oscilloscope.h), x1000 fixed point
 // Addresses 12, 16, 20 used to hold a single deprecated SERVO_MIN/CENTER/Hz scalar - unused, free
 #define adr_eprom_POWER_SCALE 24        // Skalierung für Akkuspannungs-Messung
 #define adr_eprom_SBUS_INVERTED 28      // SBUS inverted
@@ -2005,8 +2007,9 @@ void MenuUpdate()
       oscilloscopeLoop(false); // Loop oscilloscope code
     }
 
-    if (buttonState == 1) // Back
+    if (buttonState == 1) // Back - also persists any trigger level/voltage calibration changes made in this screen
     {
+      eepromWrite();
       Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
@@ -2648,6 +2651,8 @@ void eepromWrite()
   EEPROM.writeInt(adr_eprom_JOYSTICK_Y_LINK_MASK, JOYSTICK_Y_LINK_MASK);
   EEPROM.writeInt(adr_eprom_STEERING_LIMIT, STEERING_LIMIT);
   EEPROM.writeInt(adr_eprom_STEERING_LIMIT_ENABLED, STEERING_LIMIT_ENABLED);
+  EEPROM.writeInt(adr_eprom_OSC_VOLT_CAL(0), voltCalPermille[0]);
+  EEPROM.writeInt(adr_eprom_OSC_VOLT_CAL(1), voltCalPermille[1]);
   EEPROM.writeInt(adr_eprom_POWER_SCALE, POWER_SCALE);
   EEPROM.writeInt(adr_eprom_SBUS_INVERTED, SBUS_INVERTED);
   EEPROM.writeInt(adr_eprom_ENCODER_INVERTED, ENCODER_INVERTED);
@@ -2740,6 +2745,12 @@ void eepromRead()
   // "on" (matching pre-v9 behavior, where the % alone controlled everything) rather than 0/off.
   bool steeringLimitEnabledNeedsDefaulting = (storedLayoutVersion < 9);
   STEERING_LIMIT_ENABLED = steeringLimitEnabledNeedsDefaulting ? 1 : EEPROM.readInt(adr_eprom_STEERING_LIMIT_ENABLED);
+
+  // Per-probe oscilloscope voltage calibration was introduced at layout version 10 - default to
+  // 1.000x (no trim) rather than reading unwritten flash.
+  bool oscCalNeedsDefaulting = (storedLayoutVersion < 10);
+  voltCalPermille[0] = oscCalNeedsDefaulting ? 1000 : EEPROM.readInt(adr_eprom_OSC_VOLT_CAL(0));
+  voltCalPermille[1] = oscCalNeedsDefaulting ? 1000 : EEPROM.readInt(adr_eprom_OSC_VOLT_CAL(1));
 
   // Mode (and Hz) used to be one single value shared by every channel, at the now-unused address 44.
   // Split into one value per timer group at layout version 6 - seed all 3 groups from that old shared
