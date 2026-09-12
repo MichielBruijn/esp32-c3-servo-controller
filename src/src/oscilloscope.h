@@ -1,5 +1,6 @@
 /*
-  A handy oscilloscope for 0 - 3.3V RC signals
+  A handy oscilloscope for 0-3.3V RC signals natively on 2 switchable probe inputs,
+  up to ~5.4V per probe with its own external voltage divider (see voltMaxByChannel[])
 */
 
 #include "Arduino.h"

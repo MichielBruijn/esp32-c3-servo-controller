@@ -41,7 +41,7 @@ String PwmImpulseString[] {"PWM Impulse", "PWM Impuls", "PWM Impulsion"};
 String automaticModeString[] {"Automatic Mode", "Automatik Modus","Mode automat."};
 String oscillateServoString[] {"(Oscillate Servo)", "(Servo pendeln)", "(Osciller Servo)"};
 String readOscilloscopeString[] {"Oscilloscope", "Oszilloskop", "Oscilloscope"};
-String readOscilloscopeString2[] {"0-3.3V, GPIO 39", "0-3.3V, GPIO 39", "0-3.3V, GPIO 39"};
+String readOscilloscopeString2[] {"0-5.4V, GPIO 39/34", "0-5.4V, GPIO 39/34", "0-5.4V, GPIO 39/34"};
 String signalGeneratorString[] {"Signal Generator", "Signal Generator", "Générat. de signal"};
 String signalGeneratorString2[] {"0-3.3V, GPIO 25", "0-3.3V, GPIO 25", "0-3.3V, GPIO 25"};
 
