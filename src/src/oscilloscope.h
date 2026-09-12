@@ -108,9 +108,12 @@ void adjustADC()
 // Settings instead (so it doesn't need the live graph), which needs its own lightweight probe read.
 //
 
-float liveVppSettings[2] = {0, 0}; // Periodically refreshed by refreshLiveVppSettings(), read by both the display and the Auto-cal action
+float liveVoltSettings[2] = {0, 0}; // Periodically refreshed by refreshLiveVoltSettings(), read by both the display and the Auto-cal action
 
-float measureLiveVpp(int ch)
+// Averages the raw reading rather than peak-to-peak, so a plain steady DC reference (a bench
+// supply or battery, verified once with a multimeter) works - no need for a clean oscillating
+// signal just to calibrate.
+float measureLiveVoltage(int ch)
 {
   static bool adcReady = false;
   if (!adcReady)
@@ -120,26 +123,24 @@ float measureLiveVpp(int ch)
     adcReady = true;
   }
   adc1_channel_t adcCh = (ch == 0) ? ADC1_CHANNEL_3 : ADC1_CHANNEL_6;
-  int lo = 4095, hi = 0;
-  for (int i = 0; i < 200; i++)
+  long sum = 0;
+  const int samples = 200;
+  for (int i = 0; i < samples; i++)
   {
-    int v = adc1_get_raw(adcCh);
-    if (v < lo)
-      lo = v;
-    if (v > hi)
-      hi = v;
+    sum += adc1_get_raw(adcCh);
     delayMicroseconds(50);
   }
-  return (hi - lo) * voltMaxByChannel[ch] * voltCalPermille[ch] / 1000.0 / 4095.0;
+  float avgRaw = (float)sum / samples;
+  return avgRaw * voltMaxByChannel[ch] * voltCalPermille[ch] / 1000.0 / 4095.0;
 }
 
-void refreshLiveVppSettings(int ch)
+void refreshLiveVoltSettings(int ch)
 {
   static unsigned long lastMeasureMillis[2];
   if (millis() - lastMeasureMillis[ch] > 200) // ~10ms blocking sample each time, so throttle it
   {
     lastMeasureMillis[ch] = millis();
-    liveVppSettings[ch] = measureLiveVpp(ch);
+    liveVoltSettings[ch] = measureLiveVoltage(ch);
   }
 }
 

@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.09"; // Software revision.
+char codeVersion[] = "1.10"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1981,6 +1981,12 @@ void MenuUpdate()
 
     if (buttonState == 2 && InfoPage == 2 && !updateAvailable) // Short press: check now instead of waiting for the periodic 6h check
     {
+      // Silence the click-beep immediately - beep() (which normally turns it back off after
+      // beepDuration ms) only runs from loop(), which the network call below blocks for its
+      // whole duration, so without this the beep would ring continuously until it returns.
+      ledcWrite(BUZZER_LEDC_CHANNEL, 0);
+      beepDuration = 0;
+
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.setFont(ArialMT_Plain_16);
@@ -2225,14 +2231,14 @@ void MenuUpdate()
       display.drawString(64, 37, String(voltCalPermille[1] / 10.0, 1) + "%");
       break;
     case 17:
-      refreshLiveVppSettings(0);
-      display.drawString(64, 17, "Auto-cal P1");
-      display.drawString(64, 37, String(liveVppSettings[0], 2) + "V");
+      refreshLiveVoltSettings(0);
+      display.drawString(64, 17, "Auto-cal 5V DC P1");
+      display.drawString(64, 37, String(liveVoltSettings[0], 2) + "V");
       break;
     case 18:
-      refreshLiveVppSettings(1);
-      display.drawString(64, 17, "Auto-cal P2");
-      display.drawString(64, 37, String(liveVppSettings[1], 2) + "V");
+      refreshLiveVoltSettings(1);
+      display.drawString(64, 17, "Auto-cal 5V DC P2");
+      display.drawString(64, 37, String(liveVoltSettings[1], 2) + "V");
       break;
     case 19:
       // No text label here - the header already says "Factory Reset"
@@ -2331,12 +2337,12 @@ void MenuUpdate()
           // One-shot: assumes whatever's currently applied to probe 1 is a clean 5.00Vpp
           // reference, and scales the existing calibration so the live measurement matches
           // that exactly - either turn direction triggers it, this isn't a +/- adjustment.
-          if (liveVppSettings[0] > 0.05) // Guard against a flat/no-signal reading producing a nonsense multiplier
-            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVppSettings[0]);
+          if (liveVoltSettings[0] > 0.05) // Guard against a flat/no-signal reading producing a nonsense multiplier
+            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVoltSettings[0]);
           break;
         case 18:
-          if (liveVppSettings[1] > 0.05)
-            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVppSettings[1]);
+          if (liveVoltSettings[1] > 0.05)
+            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVoltSettings[1]);
           break;
         case 19:
           RESET_EEPROM--;
@@ -2409,12 +2415,12 @@ void MenuUpdate()
           voltCalPermille[1] += 5;
           break;
         case 17:
-          if (liveVppSettings[0] > 0.05)
-            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVppSettings[0]);
+          if (liveVoltSettings[0] > 0.05)
+            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVoltSettings[0]);
           break;
         case 18:
-          if (liveVppSettings[1] > 0.05)
-            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVppSettings[1]);
+          if (liveVoltSettings[1] > 0.05)
+            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVoltSettings[1]);
           break;
         case 19:
           RESET_EEPROM++;
