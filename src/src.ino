@@ -232,6 +232,7 @@ int SERVO_DEGREES[NUM_SERVO_CHANNELS];      // Volledige draaihoek in graden (bv
 
 bool WiFiChanged;
 bool webJoystickMode; // Web interface: two-thumb touch-slider control page instead of the normal per-channel sliders
+unsigned long lastJoystickMsgMillis; // millis() of the last PosJ websocket message - drives the failsafe below
 
 // Encoder + button
 ESP32Encoder encoder;
@@ -468,12 +469,15 @@ void applySteerOutput(int rawSteerValue)
 // Throttle changes, without needing to touch the Steer control too.
 void applyThrottleOutput(int rawThrottleValue)
 {
-  servo_pos[JOYSTICK_Y_CHANNEL] = rawThrottleValue;
+  int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+  int limited = constrain(rawThrottleValue,
+      SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][mode], SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][mode]);
+  servo_pos[JOYSTICK_Y_CHANNEL] = limited;
   for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
   {
     if (ch != JOYSTICK_Y_CHANNEL && (JOYSTICK_Y_LINK_MASK & (1 << ch)))
     {
-      servo_pos[ch] = remapServoPos(rawThrottleValue, JOYSTICK_Y_CHANNEL, ch);
+      servo_pos[ch] = remapServoPos(limited, JOYSTICK_Y_CHANNEL, ch);
     }
   }
 
@@ -507,6 +511,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       int value = msg.substring(equalsPos + 1).toInt();
       if (ch >= 0 && ch < NUM_SERVO_CHANNELS)
       {
+        lastJoystickMsgMillis = millis(); // Feeds the loop() failsafe - a dropped connection must not leave a stale command applied
         if (ch == JOYSTICK_X_CHANNEL)
         {
           applySteerOutput(value);
@@ -1420,28 +1425,44 @@ void MenuUpdate()
       setupMcpwm();
       SetupMenu = true;
     }
+
+    // Failsafe: an external Joystick Mode controller (app/browser) that goes silent - dropped
+    // connection, crashed client, etc. - must not leave the last received command applied
+    // indefinitely. Force both channels back to center until fresh PosJ traffic resumes.
+    if (webJoystickMode && millis() - lastJoystickMsgMillis > 500)
+    {
+      applySteerOutput(SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)]]);
+      applyThrottleOutput(SERVO_CENTER_BY_MODE[JOYSTICK_Y_CHANNEL][SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)]]);
+    }
+
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[0]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, servo_pos[1]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_A, servo_pos[2]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_1, MCPWM_OPR_B, servo_pos[3]);
     mcpwm_set_duty_in_us(MCPWM_UNIT_1, MCPWM_TIMER_0, MCPWM_OPR_A, servo_pos[4]);
 
-    if (encoderState == 1) // Left turn
+    // While an external controller is actively driving via Joystick Mode, the encoder/recenter
+    // button must not fight it - vibration on a moving vehicle can otherwise register spurious
+    // encoder ticks or a bump against the button, stomping on live PosJ commands.
+    if (!webJoystickMode)
     {
-      servo_pos[selectedServo] = servo_pos[selectedServo] - encoderSpeed; // 1us per tick, faster turns cover more ground
-    }
-    if (encoderState == 2) // Right turn
-    {
-      servo_pos[selectedServo] = servo_pos[selectedServo] + encoderSpeed;
-    }
+      if (encoderState == 1) // Left turn
+      {
+        servo_pos[selectedServo] = servo_pos[selectedServo] - encoderSpeed; // 1us per tick, faster turns cover more ground
+      }
+      if (encoderState == 2) // Right turn
+      {
+        servo_pos[selectedServo] = servo_pos[selectedServo] + encoderSpeed;
+      }
 
-    if (servo_pos[selectedServo] > SERVO_MAX) // Servo MAX
-    {
-      servo_pos[selectedServo] = SERVO_MAX;
-    }
-    else if (servo_pos[selectedServo] < SERVO_MIN) // Servo MIN
-    {
-      servo_pos[selectedServo] = SERVO_MIN;
+      if (servo_pos[selectedServo] > SERVO_MAX) // Servo MAX
+      {
+        servo_pos[selectedServo] = SERVO_MAX;
+      }
+      else if (servo_pos[selectedServo] < SERVO_MIN) // Servo MIN
+      {
+        servo_pos[selectedServo] = SERVO_MIN;
+      }
     }
 
     if (buttonState == 1)
@@ -1451,7 +1472,7 @@ void MenuUpdate()
       selectedServo = 0;
     }
 
-    if (buttonState == 2)
+    if (buttonState == 2 && !webJoystickMode)
     {
       servo_pos[selectedServo] = SERVO_CENTER; // Servo Mitte
     }

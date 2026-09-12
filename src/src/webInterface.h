@@ -418,6 +418,7 @@ void webInterface()
                 // only the web page rendering differs (see the Servotester_Menu case below).
                 Menu = Servotester_Menu;
                 webJoystickMode = true;
+                lastJoystickMsgMillis = millis(); // Don't let the loop() failsafe trip before any PosJ traffic has even arrived
               }
               if (header.indexOf("GET /20/on") >= 0)
               {
