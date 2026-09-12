@@ -35,7 +35,7 @@ int scaleY = 85;        // define a variable for the y scale (85) adcmax/scaleY 
 int scopeOffsetY = -13; // shifted 13 pixels downwards to make room for text
 
 // Voltage measuring
-float voltMax = 3.3;
+float voltMaxByChannel[2] = {5.45, 5.45}; // Assumes a 16.2k/24.9k voltage divider on both OSCILLOSCOPE_PIN and OSCILLOSCOPE_PIN2 (5V -> 3.03V each), scaled back up for the vPP readout
 int adcMax = 4095; // the maximum reading from the ADC 1023, but 4095 on ESP32!
 float vPP = 0;     // peak to peak voltage
 
@@ -53,8 +53,17 @@ uint32_t averagingPasses = 10;
 int triggerLevel = 2048;
 byte triggerMode = 0;
 
+// Probe channel switching
+int oscChannel = 0; // 0 = primary probe (OSCILLOSCOPE_PIN / ADC1_CHANNEL_3), 1 = secondary probe (OSCILLOSCOPE_PIN2 / ADC1_CHANNEL_6)
+
+adc1_channel_t currentOscAdcChannel()
+{
+  return (oscChannel == 0) ? ADC1_CHANNEL_3 : ADC1_CHANNEL_6;
+}
+
 // Display
 unsigned long popupMillis;
+byte popupMode = 0; // 0 = sampling delay popup, 1 = channel switch popup
 bool takeNewSamples;
 
 // menu
@@ -71,18 +80,35 @@ void adjustADC()
   if (encoderState == 1)
   {
     samplingDelay -= 4;
+    popupMode = 0;
     popupMillis = millis();
   }
   if (encoderState == 2)
   {
     samplingDelay += 4;
+    popupMode = 0;
     popupMillis = millis();
   }
 
   if (buttonState == 2)
+  {
+    popupMode = 0;
     popupMillis = millis(); // Show popup, if button clicked
+  }
 
   samplingDelay = constrain(samplingDelay, 0, 300); // 160 for 50Hz
+}
+
+//
+// =======================================================================================================
+// SWITCH PROBE CHANNEL
+// =======================================================================================================
+//
+void switchOscChannel()
+{
+  oscChannel = !oscChannel;
+  popupMode = 1;
+  popupMillis = millis();
 }
 
 //
@@ -99,19 +125,20 @@ void readProbe()
     portDISABLE_INTERRUPTS();
     // wait until threshold hits trigger level -------------------------------------------------
     sampleNo = 0;
+    adc1_channel_t adcCh = currentOscAdcChannel();
 #if defined FAST_ADC
-    while ((local_adc1_read(ADC1_CHANNEL_3) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((local_adc1_read(adcCh) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #else
-    while ((adc1_get_raw(ADC1_CHANNEL_3) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((adc1_get_raw(adcCh) < triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #endif
     {
       sampleNo++; // proceed after reaching array end, if no trigger level was detected!
     }
     sampleNo = 0;
 #if defined FAST_ADC
-    while ((local_adc1_read(ADC1_CHANNEL_3) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((local_adc1_read(adcCh) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #else
-    while ((adc1_get_raw(ADC1_CHANNEL_3) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
+    while ((adc1_get_raw(adcCh) > triggerLevel) && (sampleNo < 2500)) // We have to wait long enough for 50Hz or PPM, so longer than arraySize
 #endif
     {
       sampleNo++;
@@ -177,7 +204,7 @@ void readProbe()
     arrayMin = samplingArray.getMin();
     arrayMax = samplingArray.getMax();
     arrayAverage = samplingArray.getAverage();
-    vPP = (arrayMax - arrayMin) * voltMax / adcMax;
+    vPP = (arrayMax - arrayMin) * voltMaxByChannel[oscChannel] / adcMax;
   }
 }
 
@@ -227,7 +254,7 @@ void drawDisplay()
     // Readings on top of display
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(displayWidth, 0, String(vPP) + "vPP"); // Show peak to peak voltage
+    display.drawString(displayWidth, 0, "P" + String(oscChannel + 1) + " " + String(vPP) + "vPP"); // Show active probe + peak to peak voltage
 
     if (triggerLevel > 0)
     { // if trigger is active
@@ -246,8 +273,16 @@ void drawDisplay()
       display.fillRect(25, 22, 78, 29); // Clear area behind window
       display.setColor(WHITE);
       display.drawRect(25, 22, 78, 29); // Draw window frame
-      display.drawString(64, 25, "Sampling delay");
-      display.drawString(64, 35, String(samplingDelay) + " µs"); // Show sampling delay
+      if (popupMode == 1)
+      {
+        display.drawString(64, 25, "Probe " + String(oscChannel + 1));
+        display.drawString(64, 35, "Pin " + String(oscChannel == 0 ? OSCILLOSCOPE_PIN : OSCILLOSCOPE_PIN2));
+      }
+      else
+      {
+        display.drawString(64, 25, "Sampling delay");
+        display.drawString(64, 35, String(samplingDelay) + " µs"); // Show sampling delay
+      }
     }
 
     // refresh display content
@@ -270,8 +305,10 @@ void oscilloscopeLoop(bool init)
     // the channel enum here (numerically 4), silently attaching the wrong GPIO (4, the buzzer pin)
     // instead of the actual scope pin. Fixed while restoring: pass the real pin number.
     adcAttachPin(OSCILLOSCOPE_PIN);
+    adcAttachPin(OSCILLOSCOPE_PIN2);
     // adc1_get_raw(ADC1_CHANNEL_3); // required for correct ADC configuration
     samplingDelay = 160;    // Set ideal delay for standard RC Signals (132 for analogRead, 160 for adc1_get_raw)
+    popupMode = 0;
     popupMillis = millis(); // Show popup
   }
 

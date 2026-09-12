@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.03"; // Software revision.
+char codeVersion[] = "1.04"; // Software revision.
 
 //
 // =======================================================================================================
@@ -289,6 +289,7 @@ int encoderLedDuration; // ms remaining for the current flash, 0 = off
 // physical joystick button - GPIO26 is free again now that the joystick has been removed, but these
 // stay on their current pins since hardware may already be wired for them.
 #define OSCILLOSCOPE_PIN 39     // ADC1 pin only, input-only! Don't change without also updating oscilloscope.h's hardcoded ADC1_CHANNEL_3
+#define OSCILLOSCOPE_PIN2 34    // ADC1 pin only, input-only! Second probe, free since the physical joystick (GPIO34/35) was removed. Double-click to switch live. Don't change without also updating oscilloscope.h's hardcoded ADC1_CHANNEL_6
 #define SIGNAL_GENERATOR_PIN 25 // The other DAC-capable pin (DAC_CHANNEL_1)
 
 // Serial command pins for SBUS, IBUS -----
@@ -1145,15 +1146,23 @@ void ButtonRead()
 
   // BOOT button ---------------------------------------------------------------------------------
   // Extra physical shortcut for "next channel", so you don't need the encoder's double-click for it.
+  // In the Oscilloscope screen it switches the probe channel instead, since servo channels don't apply there.
   static bool lastBootButtonState = HIGH;
   static unsigned long bootButtonMillis;
   bool bootButtonState = digitalRead(BOOT_BUTTON_PIN);
   if (bootButtonState == LOW && lastBootButtonState == HIGH && millis() - bootButtonMillis > bouncing)
   {
     bootButtonMillis = millis();
-    selectedServo++;
-    if (selectedServo > NUM_SERVO_CHANNELS - 1)
-      selectedServo = 0;
+    if (Menu == Oscilloscope_Menu)
+    {
+      switchOscChannel();
+    }
+    else
+    {
+      selectedServo++;
+      if (selectedServo > NUM_SERVO_CHANNELS - 1)
+        selectedServo = 0;
+    }
     encoderLedDuration = ENCODER_LED_FLASH_MS; // Same click feedback as the encoder button/detent
     beepDuration = 10; // Same short beep as a normal button click
   }
@@ -1980,6 +1989,7 @@ void MenuUpdate()
     if (!SetupMenu) // This stuff is only executed once
     {
       pinMode(OSCILLOSCOPE_PIN, INPUT);
+      pinMode(OSCILLOSCOPE_PIN2, INPUT);
       oscilloscopeLoop(true); // Init oscilloscope
       SetupMenu = true;
     }
@@ -1993,6 +2003,9 @@ void MenuUpdate()
       Menu = ExpertFunctions_Menu;
       SetupMenu = false;
     }
+
+    if (buttonState == 3) // Doubleclick: switch probe channel, same convention as "Doubleclick = Change channel" elsewhere
+      switchOscChannel();
     break;
 
     // Signal Generator *********************************************************
