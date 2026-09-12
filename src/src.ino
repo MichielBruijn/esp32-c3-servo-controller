@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.04"; // Software revision.
+char codeVersion[] = "1.05"; // Software revision.
 
 //
 // =======================================================================================================
@@ -848,6 +848,13 @@ void wifiStartAccessPoint()
 
 void wifiSetup()
 {
+  // Silence any click-beep immediately - beep() (which normally turns it back off after
+  // beepDuration ms) only runs from loop(), which the Station connect attempt below blocks
+  // for up to 10s (plus scan time), so without this the beep that fired on the button press
+  // triggering this would otherwise ring continuously for the whole connect attempt.
+  ledcWrite(BUZZER_LEDC_CHANNEL, 0);
+  beepDuration = 0;
+
   MDNS.end(); // Clear any previous responder before (re)configuring WiFi, safe even if never started
   wifiStaFallback = false;
 
