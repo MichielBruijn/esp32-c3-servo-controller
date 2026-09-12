@@ -51,7 +51,7 @@ uint32_t pulseWidth1 = 0;
 uint32_t pulseWidth = 0;
 uint32_t averagingPasses = 10;
 
-// trigger
+// trigger - auto-recentered every frame on the signal's own min/max, see readProbe()
 int triggerLevel = 2048;
 byte triggerMode = 0;
 
@@ -65,12 +65,8 @@ adc1_channel_t currentOscAdcChannel()
 
 // Display
 unsigned long popupMillis;
-byte popupMode = 0; // 0 = adjustable-value popup (see oscAdjustMode), 1 = probe switch popup
+byte popupMode = 0; // 0 = sampling delay popup, 1 = probe switch popup
 bool takeNewSamples;
-
-// What the encoder currently adjusts, cycled with a short button press - like a real scope's
-// single "menu" knob doubling for several settings
-byte oscAdjustMode = 0; // 0 = sampling delay (timebase), 1 = trigger level, 2 = per-probe voltage calibration
 
 // menu
 byte menu = 1; // the current menu item
@@ -82,35 +78,69 @@ byte menu = 1; // the current menu item
 //
 void adjustADC()
 {
-  if (buttonState == 2) // Short press: cycle what the encoder adjusts (timebase / trigger / voltage cal)
+  if (encoderState == 1)
   {
-    oscAdjustMode = (oscAdjustMode + 1) % 3;
+    samplingDelay -= 4;
+    popupMode = 0;
+    popupMillis = millis();
+  }
+  if (encoderState == 2)
+  {
+    samplingDelay += 4;
     popupMode = 0;
     popupMillis = millis();
   }
 
-  if (encoderState == 1 || encoderState == 2)
+  if (buttonState == 2)
   {
-    int dir = (encoderState == 1) ? -1 : 1;
-    switch (oscAdjustMode)
-    {
-    case 0:
-      samplingDelay += dir * 4;
-      break;
-    case 1:
-      triggerLevel += dir * 64;
-      break;
-    case 2:
-      voltCalPermille[oscChannel] += dir * 5; // 0.5% steps
-      break;
-    }
     popupMode = 0;
-    popupMillis = millis();
+    popupMillis = millis(); // Show popup, if button clicked
   }
 
   samplingDelay = constrain(samplingDelay, 0, 300); // 160 for 50Hz
-  triggerLevel = constrain(triggerLevel, 100, 3990); // stay clear of the trigger-wait loops' strict 0/4095 edges
-  voltCalPermille[oscChannel] = constrain(voltCalPermille[oscChannel], 800, 1200); // +/-20%, plenty for resistor tolerance/ADC gain error
+}
+
+//
+// =======================================================================================================
+// LIVE VOLTAGE MEASUREMENT FOR SETTINGS' SCOPE CALIBRATION ITEMS
+// =======================================================================================================
+// readProbe() above only runs while the Oscilloscope screen itself is open. Calibration lives in
+// Settings instead (so it doesn't need the live graph), which needs its own lightweight probe read.
+//
+
+float liveVppSettings[2] = {0, 0}; // Periodically refreshed by refreshLiveVppSettings(), read by both the display and the Auto-cal action
+
+float measureLiveVpp(int ch)
+{
+  static bool adcReady = false;
+  if (!adcReady)
+  {
+    adcAttachPin(OSCILLOSCOPE_PIN);
+    adcAttachPin(OSCILLOSCOPE_PIN2);
+    adcReady = true;
+  }
+  adc1_channel_t adcCh = (ch == 0) ? ADC1_CHANNEL_3 : ADC1_CHANNEL_6;
+  int lo = 4095, hi = 0;
+  for (int i = 0; i < 200; i++)
+  {
+    int v = adc1_get_raw(adcCh);
+    if (v < lo)
+      lo = v;
+    if (v > hi)
+      hi = v;
+    delayMicroseconds(50);
+  }
+  return (hi - lo) * voltMaxByChannel[ch] * voltCalPermille[ch] / 1000.0 / 4095.0;
+}
+
+void refreshLiveVppSettings(int ch)
+{
+  static unsigned long lastMeasureMillis[2];
+  if (millis() - lastMeasureMillis[ch] > 200) // ~10ms blocking sample each time, so throttle it
+  {
+    lastMeasureMillis[ch] = millis();
+    liveVppSettings[ch] = measureLiveVpp(ch);
+  }
 }
 
 //
@@ -182,6 +212,17 @@ void readProbe()
 
     // Calculate the required time for taking one sample -------------------------------------
     oneSampleDuration = ((endSampleMicros + oneSampleCalibration - startSampleMicros) / arraySize);
+
+    // Auto-trigger: re-center the trigger level on this frame's own raw min/max (before the
+    // invert step below), so it always sits mid-signal regardless of amplitude, DC offset or
+    // which probe/divider is in use - a fixed or manually-tuned level would miss any signal
+    // that doesn't happen to cross it, silently reporting 0Hz with no way to fix it live.
+    // Takes effect for this frame's frequency scan below, and (carried over via the global)
+    // for the next frame's trigger-wait loops above.
+    int rawMin = samplingArray.getMin();
+    int rawMax = samplingArray.getMax();
+    if (rawMax > rawMin) // Skip on a flat/no-signal buffer, keep the last known good level instead
+      triggerLevel = (rawMin + rawMax) / 2;
 
     // calculate signal frequency using trigger level crossing
     sampleNo = 0;
@@ -296,21 +337,8 @@ void drawDisplay()
       }
       else
       {
-        switch (oscAdjustMode)
-        {
-        case 0:
-          display.drawString(64, 25, "Sampling delay");
-          display.drawString(64, 35, String(samplingDelay) + " µs");
-          break;
-        case 1:
-          display.drawString(64, 25, "Trigger level");
-          display.drawString(64, 35, String(triggerLevel));
-          break;
-        case 2:
-          display.drawString(64, 25, "Volt cal P" + String(oscChannel + 1));
-          display.drawString(64, 35, String(voltCalPermille[oscChannel] / 1000.0, 3) + "x");
-          break;
-        }
+        display.drawString(64, 25, "Sampling delay");
+        display.drawString(64, 35, String(samplingDelay) + " µs"); // Show sampling delay
       }
     }
 

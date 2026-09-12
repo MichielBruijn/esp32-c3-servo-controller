@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.08"; // Software revision.
+char codeVersion[] = "1.09"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1197,6 +1197,8 @@ String settingsGroupName(int item)
     return "Joystick"; // Steer, Throttle, Steering Limit
   if (item <= 14)
     return "WiFi"; // On/Off, Mode
+  if (item <= 18)
+    return "Scope"; // Cal P1/P2, Auto-cal P1/P2
   return "Factory Reset";
 }
 
@@ -1946,7 +1948,8 @@ void MenuUpdate()
         display.drawString(64, 12, "github.com/");
         display.drawString(64, 22, "MichielBruijn/");
         display.drawString(64, 32, "esp32-servo-tester");
-        display.drawString(64, 48, "v" + String(codeVersion));
+        display.drawString(64, 44, "v" + String(codeVersion));
+        display.drawString(64, 54, "Short press: Check");
       }
       else
       {
@@ -1974,6 +1977,17 @@ void MenuUpdate()
     {
       Menu = Info_Select;
       InfoPage = 0;
+    }
+
+    if (buttonState == 2 && InfoPage == 2 && !updateAvailable) // Short press: check now instead of waiting for the periodic 6h check
+    {
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 25, "Checking...");
+      display.display();
+      checkForFirmwareUpdate();
+      lastUpdateCheckMillis = millis(); // Don't let the periodic check immediately fire again right after this manual one
     }
 
     if (buttonState == 2 && InfoPage == 2 && updateAvailable)
@@ -2082,7 +2096,7 @@ void MenuUpdate()
     display.setFont(ArialMT_Plain_16);
     {
       String groupName = settingsGroupName(SettingsItem);
-      display.drawString(64, 0, SettingsItem == 0 ? ("  " + groupName + " >") : (SettingsItem == 15 ? ("< " + groupName + "  ") : ("< " + groupName + " >")));
+      display.drawString(64, 0, SettingsItem == 0 ? ("  " + groupName + " >") : (SettingsItem == 19 ? ("< " + groupName + "  ") : ("< " + groupName + " >")));
     }
     switch (SettingsItem)
     {
@@ -2203,6 +2217,24 @@ void MenuUpdate()
       }
       break;
     case 15:
+      display.drawString(64, 17, "Scope Cal P1");
+      display.drawString(64, 37, String(voltCalPermille[0] / 10.0, 1) + "%");
+      break;
+    case 16:
+      display.drawString(64, 17, "Scope Cal P2");
+      display.drawString(64, 37, String(voltCalPermille[1] / 10.0, 1) + "%");
+      break;
+    case 17:
+      refreshLiveVppSettings(0);
+      display.drawString(64, 17, "Auto-cal P1");
+      display.drawString(64, 37, String(liveVppSettings[0], 2) + "V");
+      break;
+    case 18:
+      refreshLiveVppSettings(1);
+      display.drawString(64, 17, "Auto-cal P2");
+      display.drawString(64, 37, String(liveVppSettings[1], 2) + "V");
+      break;
+    case 19:
       // No text label here - the header already says "Factory Reset"
       if (RESET_EEPROM == 1)
       {
@@ -2290,6 +2322,23 @@ void MenuUpdate()
           WiFiChanged = true;
           break;
         case 15:
+          voltCalPermille[0] -= 5; // 0.5% steps
+          break;
+        case 16:
+          voltCalPermille[1] -= 5;
+          break;
+        case 17:
+          // One-shot: assumes whatever's currently applied to probe 1 is a clean 5.00Vpp
+          // reference, and scales the existing calibration so the live measurement matches
+          // that exactly - either turn direction triggers it, this isn't a +/- adjustment.
+          if (liveVppSettings[0] > 0.05) // Guard against a flat/no-signal reading producing a nonsense multiplier
+            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVppSettings[0]);
+          break;
+        case 18:
+          if (liveVppSettings[1] > 0.05)
+            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVppSettings[1]);
+          break;
+        case 19:
           RESET_EEPROM--;
           break;
         }
@@ -2354,6 +2403,20 @@ void MenuUpdate()
           WiFiChanged = true;
           break;
         case 15:
+          voltCalPermille[0] += 5;
+          break;
+        case 16:
+          voltCalPermille[1] += 5;
+          break;
+        case 17:
+          if (liveVppSettings[0] > 0.05)
+            voltCalPermille[0] = round(voltCalPermille[0] * 5.00 / liveVppSettings[0]);
+          break;
+        case 18:
+          if (liveVppSettings[1] > 0.05)
+            voltCalPermille[1] = round(voltCalPermille[1] * 5.00 / liveVppSettings[1]);
+          break;
+        case 19:
           RESET_EEPROM++;
           break;
         }
@@ -2361,9 +2424,9 @@ void MenuUpdate()
     }
 
     // Menu range - clamp, don't wrap around, matching the top-level list's own boundary behavior
-    if (SettingsItem > 15)
+    if (SettingsItem > 19)
     {
-      SettingsItem = 15;
+      SettingsItem = 19;
     }
     else if (SettingsItem < 0)
     {
@@ -2386,6 +2449,8 @@ void MenuUpdate()
     JOYSTICK_X_CHANNEL = constrain(JOYSTICK_X_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
     JOYSTICK_Y_CHANNEL = constrain(JOYSTICK_Y_CHANNEL, 0, NUM_SERVO_CHANNELS - 1);
     STEERING_LIMIT = constrain(STEERING_LIMIT, 0, 100);
+    voltCalPermille[0] = constrain(voltCalPermille[0], 800, 1200); // +/-20%, plenty for resistor tolerance/ADC gain error
+    voltCalPermille[1] = constrain(voltCalPermille[1], 800, 1200);
 
     if (LANGUAGE < 0)
     { // Language nicht unter 0
