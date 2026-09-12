@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.11"; // Software revision.
+char codeVersion[] = "1.12"; // Software revision.
 
 //
 // =======================================================================================================
@@ -113,6 +113,8 @@ using namespace std;
 
 int RESET_EEPROM; // WIFI 1 = Reset 0 = No Reset
 bool ConfirmFactoryReset = false; // "Are you sure?" screen shown before an actual factory reset is applied
+bool ConfirmFirmwareInstall = false; // "Are you sure?" screen shown before an actual firmware install is applied
+int InstallUpdateChoice = 0; // 0 = No, 1 = Yes, on the above confirm screen
 
 #define adr_eprom_WIFI_ON 0             // WIFI 1 = Ein 0 = Aus
 #define adr_eprom_WIFI_MODE 4           // Reused from the old deprecated SERVO_STEPS address; 0 = Access Point, 1 = Station
@@ -1487,8 +1489,8 @@ void MenuUpdate()
       for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
         servo_pos[ch] = servoCenterForChannel(ch); // Each channel centers on its own calibrated value
       setupMcpwm();
-      TimeAuto = 50;      // Zeit für SERVO Steps +-
-      Auto_Pause = false; // Pause aus
+      TimeAuto = 50;     // Zeit für SERVO Steps +-
+      Auto_Pause = true; // Start paused, so you can double-click to the right channel before it starts sweeping
       SetupMenu = true;
     }
 
@@ -1901,6 +1903,49 @@ void MenuUpdate()
 
   // Info - 3 pages, left/right to page through: Wifi, Controls, Firmware *********************
   case Info_Menu:
+    if (ConfirmFirmwareInstall) // "Are you sure?" screen - turn to change, short press to apply, long press to cancel
+    {
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(64, 2, "Install v" + latestFirmwareVersion + "?");
+      display.setFont(ArialMT_Plain_24);
+      display.drawString(64, 30, InstallUpdateChoice ? yesString[LANGUAGE] : noString[LANGUAGE]);
+      display.display();
+
+      if (encoderState == 1 || encoderState == 2)
+      {
+        InstallUpdateChoice = !InstallUpdateChoice;
+      }
+
+      if (buttonState == 2) // Short press: apply the choice
+      {
+        ConfirmFirmwareInstall = false;
+        if (InstallUpdateChoice)
+        {
+          if (!installFirmwareUpdate()) // Blocks; restarts the device on success, returns on failure
+          {
+            display.clear();
+            display.setTextAlignment(TEXT_ALIGN_CENTER);
+            display.setFont(ArialMT_Plain_16);
+            display.drawString(64, 10, "Update failed");
+            display.setFont(ArialMT_Plain_10);
+            display.drawString(64, 38, updateErrorMessage);
+            display.display();
+            delay(3000);
+          }
+        }
+        InstallUpdateChoice = 0;
+      }
+
+      if (buttonState == 1) // Long press: cancel, no install
+      {
+        ConfirmFirmwareInstall = false;
+        InstallUpdateChoice = 0;
+      }
+      break;
+    }
+
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
     display.setFont(ArialMT_Plain_10);
@@ -1979,9 +2024,6 @@ void MenuUpdate()
       InfoPage = 0;
     }
 
-    // Check and install are one if/else, not two independent ifs - both used to fire on the
-    // same buttonState==2 within the same pass, so a check that found an update fell straight
-    // through into installing it immediately, with no separate confirmation press in between.
     if (buttonState == 2 && InfoPage == 2 && !updateAvailable) // Short press: check now instead of waiting for the periodic 6h check
     {
       // Silence the click-beep immediately - beep() (which normally turns it back off after
@@ -1998,19 +2040,10 @@ void MenuUpdate()
       checkForFirmwareUpdate();
       lastUpdateCheckMillis = millis(); // Don't let the periodic check immediately fire again right after this manual one
     }
-    else if (buttonState == 2 && InfoPage == 2 && updateAvailable)
+    else if (buttonState == 2 && InfoPage == 2 && updateAvailable) // Short press: open the Yes/No confirm screen above, don't install directly
     {
-      if (!installFirmwareUpdate()) // Blocks; restarts the device on success, returns on failure
-      {
-        display.clear();
-        display.setTextAlignment(TEXT_ALIGN_CENTER);
-        display.setFont(ArialMT_Plain_16);
-        display.drawString(64, 10, "Update failed");
-        display.setFont(ArialMT_Plain_10);
-        display.drawString(64, 38, updateErrorMessage);
-        display.display();
-        delay(3000);
-      }
+      ConfirmFirmwareInstall = true;
+      InstallUpdateChoice = 0; // Default to "No" so an absent-minded press never installs
     }
     break;
 
