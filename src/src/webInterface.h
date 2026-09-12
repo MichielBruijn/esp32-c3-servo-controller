@@ -344,6 +344,7 @@ void webInterface()
                 valueString = header.substring(pos1 + 1, pos2);
                 int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
                 JOYSTICK_X_LINK_MASK ^= (1 << ch);
+                eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
               }
               if (header.indexOf("GET /?JoyYLink=") >= 0)
               {
@@ -352,6 +353,7 @@ void webInterface()
                 valueString = header.substring(pos1 + 1, pos2);
                 int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
                 JOYSTICK_Y_LINK_MASK ^= (1 << ch);
+                eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
               }
               if (header.indexOf("GET /?SteerLimit=") >= 0)
               {

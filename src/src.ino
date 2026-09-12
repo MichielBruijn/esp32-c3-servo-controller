@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.15"; // Software revision.
+char codeVersion[] = "1.16"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1413,7 +1413,7 @@ void MenuUpdate()
       display.drawString(128, 20, String(us2degree(servo_pos[selectedServo])));
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.setFont(ArialMT_Plain_24);
-      display.drawString(64, 0, "Servo" + String(selectedServo + 1));
+      display.drawString(64, 0, webJoystickMode ? "Joystick" : "Servo" + String(selectedServo + 1));
       display.drawString(64, 25, String(servo_pos[selectedServo]) + "µs");
       display.drawProgressBar(8, 50, 112, 10, (SERVO_MAX != SERVO_MIN ? (((servo_pos[selectedServo] - SERVO_MIN) * 100) / (SERVO_MAX - SERVO_MIN)) : 50));
       display.display();
