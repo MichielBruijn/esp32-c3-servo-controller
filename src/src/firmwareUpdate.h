@@ -277,20 +277,32 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
 
   uint8_t buf[1024];
   size_t offset = 0;
+  unsigned long lastProgressMillis = millis();
   while (offset < size)
   {
     size_t toRead = min(sizeof(buf), size - offset);
     if (esp_partition_read(running, offset, buf, toRead) != ESP_OK)
       break;
-    // client.write() can send fewer bytes than asked (e.g. a full TX buffer) - looping until
-    // the whole chunk is actually sent avoids silently dropping bytes from the download.
+    // client.write() returning 0 usually just means the TCP send buffer is momentarily full
+    // (completely normal over WiFi) - treating that as "connection dropped" and bailing out
+    // immediately is what made this download reliably cut off partway (~100+KB in) on a real
+    // network. Only give up once the client has genuinely disconnected, or 0 bytes have gone
+    // out for a full 15s straight - a real, sustained stall, not a momentary hiccup.
     size_t sent = 0;
     while (sent < toRead)
     {
       size_t n = client.write(buf + sent, toRead - sent);
-      if (n == 0)
-        return; // connection dropped - nothing more we can do
-      sent += n;
+      if (n > 0)
+      {
+        sent += n;
+        lastProgressMillis = millis();
+      }
+      else
+      {
+        if (!client.connected() || millis() - lastProgressMillis > 15000)
+          return;
+        delay(2);
+      }
     }
     offset += toRead;
   }
