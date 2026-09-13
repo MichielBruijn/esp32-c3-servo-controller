@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.30"; // Software revision.
+char codeVersion[] = "1.31"; // Software revision.
 
 //
 // =======================================================================================================

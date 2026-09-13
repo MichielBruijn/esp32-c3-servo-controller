@@ -378,6 +378,8 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
     Update.setMD5(expectedMd5.c_str());
   }
 
+  Update.onProgress(showFirmwareWriteProgress); // was missing - OLED never showed a percentage
+
   Serial.println("OTAREADY");
   Serial.flush();
   delay(50);
