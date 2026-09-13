@@ -329,7 +329,14 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
 // PosJ.../GETVERSION/etc. never need more than the normal 115200 - only the bulk firmware
 // transfer benefits from going faster, so the baud rate only changes for that transfer's
 // duration (see the OTAREADY handshake below), never the board's normal running baud rate.
-const unsigned long USB_OTA_BAUD = 921600;
+//
+// 921600 consistently corrupted the transfer a few KB in ("wrong magic byte") even after
+// fixing two real races in the switch-over handshake and the app's read/write concurrency -
+// pointing at 921600 itself being too aggressive for this specific CP210x+ESP32 pairing
+// rather than a remaining software race. 460800 is still 4x the original 115200 (a ~1.2MB
+// image in ~25s instead of over a minute) and is a far more commonly reliable rate across
+// USB-serial hardware.
+const unsigned long USB_OTA_BAUD = 460800;
 
 // Flashes firmware sent raw over the USB-serial connection - the same connection the app's
 // primary control path (usbJoystickLoop(), src.ino) already uses for "PosJ.../SteerLimitOn=",
