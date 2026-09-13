@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.26"; // Software revision.
+char codeVersion[] = "1.27"; // Software revision.
 
 //
 // =======================================================================================================
@@ -554,7 +554,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 // Defined in src/firmwareUpdate.h, included further down (line ~770) - needs a
 // forward declaration here since usbJoystickLoop() below (which calls it) is
 // defined earlier in this file than that #include.
-bool usbFirmwareUpdate(size_t contentLength);
+bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5);
 
 // Reads "PosJ{ch}=<value>" and "SteerLimitOn=<0|1>" lines from the USB serial
 // port - an alternative to the websocket path above for a phone connected via
@@ -595,7 +595,14 @@ void usbJoystickLoop()
   }
   if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
   {
-    usbFirmwareUpdate((size_t)msg.substring(10).toInt());
+    // "OTAUPDATE=<size>:<md5hex>" - the MD5 lets usbFirmwareUpdate() verify the image
+    // actually arrived intact over this raw, unchecked serial byte stream (see its doc).
+    String rest = msg.substring(10);
+    int colonPos = rest.indexOf(':');
+    if (colonPos > 0)
+    {
+      usbFirmwareUpdate((size_t)rest.substring(0, colonPos).toInt(), rest.substring(colonPos + 1));
+    }
     return;
   }
 

@@ -326,6 +326,11 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
   }
 }
 
+// PosJ.../GETVERSION/etc. never need more than the normal 115200 - only the bulk firmware
+// transfer benefits from going faster, so the baud rate only changes for that transfer's
+// duration (see the OTAREADY handshake below), never the board's normal running baud rate.
+const unsigned long USB_OTA_BAUD = 921600;
+
 // Flashes firmware sent raw over the USB-serial connection - the same connection the app's
 // primary control path (usbJoystickLoop(), src.ino) already uses for "PosJ.../SteerLimitOn=",
 // instead of the wifi uploadCurrentFirmware()/installFirmwareUpdate() paths below (which need
@@ -334,8 +339,23 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
 // "OTAUPDATE=<size>" (usbJoystickLoop()); the phone then writes exactly <size> raw firmware
 // bytes, which is why this reads with Serial.available()/readBytes() rather than
 // readStringUntil('\n') like the rest of usbJoystickLoop() - this is binary data, not text lines.
-// Prints "OTAOK" or "OTAERROR:<message>" when done so the phone knows whether it worked.
-bool usbFirmwareUpdate(size_t contentLength)
+//
+// "OTAREADY" + a baud rate bump happens right before those bytes start: at the original
+// 115200, a ~1.2MB image takes well over a minute (confirmed on real hardware, ~1%/second -
+// annoying, but not what the delay values below are protecting). Both sides need to switch at
+// the same moment or the transfer garbles, hence the explicit ack instead of just guessing a
+// safe pause; the phone switches its own port the instant it sees "OTAREADY" (before writing
+// any firmware bytes), and this side switches right after sending it. On success the reboot
+// naturally resets Serial back to 115200 (setup() calls Serial.begin() at the normal rate
+// again); on a failure that happens after the switch, this reverts explicitly so subsequent
+// GETVERSION/PosJ traffic isn't left stuck at the OTA-only baud rate.
+//
+// [expectedMd5] guards against exactly that kind of corruption: this link has zero error
+// detection of its own (unlike the wifi upload path, which rides on TCP) - Update.setMD5()
+// makes Update.end() below verify the received image against it, turning silent corruption
+// into a clear "MD5 Mismatch" instead of a cryptic "Could not activate the firmware" (which
+// is what a corrupted-but-right-length image's failed boot-partition validation looks like).
+bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
 {
   if (contentLength == 0 || updateInProgress)
   {
@@ -352,6 +372,17 @@ bool usbFirmwareUpdate(size_t contentLength)
     updateInProgress = false;
     return false;
   }
+
+  if (expectedMd5.length() == 32)
+  {
+    Update.setMD5(expectedMd5.c_str());
+  }
+
+  Serial.println("OTAREADY");
+  Serial.flush();
+  delay(50);
+  Serial.begin(USB_OTA_BAUD);
+  delay(50);
 
   size_t received = 0;
   uint8_t buf[1024];
@@ -375,6 +406,7 @@ bool usbFirmwareUpdate(size_t contentLength)
       Serial.println("OTAERROR:" + updateErrorMessage);
       Update.abort();
       updateInProgress = false;
+      Serial.begin(115200); // back to normal - this failure path doesn't reboot
       return false;
     }
   }
@@ -389,13 +421,14 @@ bool usbFirmwareUpdate(size_t contentLength)
     Serial.println("OTAERROR:" + updateErrorMessage);
     Update.abort();
     updateInProgress = false;
+    Serial.begin(115200); // back to normal - this failure path doesn't reboot
     return false;
   }
 
   Serial.println("OTAOK");
   Serial.flush();
   delay(200); // let the phone actually read "OTAOK" before the reboot drops the UART mid-byte
-  showFirmwareWriteCompleteAndRestart(); // restarts the ESP32
+  showFirmwareWriteCompleteAndRestart(); // restarts the ESP32 (which resets the baud rate too)
   return true; // Unreachable, but keeps the compiler happy about all paths returning
 }
 
