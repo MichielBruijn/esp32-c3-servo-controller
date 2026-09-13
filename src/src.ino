@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.22"; // Software revision.
+char codeVersion[] = "1.23"; // Software revision.
 
 //
 // =======================================================================================================
@@ -542,18 +542,20 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   }
 }
 
-// Reads "PosJ{ch}=<value>" lines from the USB serial port - an alternative to the
-// websocket path above for a phone connected via USB-OTG cable instead of joining
-// this board's wifi (avoids that phone having to juggle wifi-to-here plus mobile
-// data for its own uplink at the same time). Deliberately mirrors webSocketEvent's
-// PosJ branch exactly (same channel-linking/Steering-Limit path via
+// Reads "PosJ{ch}=<value>" and "SteerLimitOn=<0|1>" lines from the USB serial
+// port - an alternative to the websocket path above for a phone connected via
+// USB-OTG cable instead of joining this board's wifi (avoids that phone having
+// to juggle wifi-to-here plus mobile data for its own uplink at the same time).
+// Deliberately mirrors webSocketEvent's PosJ branch and the HTTP SteerLimitOn
+// handler exactly (same channel-linking/Steering-Limit path via
 // applySteerOutput/applyThrottleOutput, same lastJoystickMsgMillis feed into the
-// existing >500ms failsafe) so both transports behave identically. Runs
-// unconditionally every loop() iteration, independent of the on-device menu -
-// same reasoning as Joystick Mode's websocket path: an external controller can't
-// depend on someone also being at the physical menu. Only forces
-// Menu/webJoystickMode on an actually-valid PosJ line, not on any stray serial
-// input (e.g. someone poking at Serial Monitor for debugging).
+// existing >500ms failsafe, same immediate non-persisted toggle) so all
+// transports behave identically. Runs unconditionally every loop() iteration,
+// independent of the on-device menu - same reasoning as Joystick Mode's
+// websocket path: an external controller can't depend on someone also being at
+// the physical menu. Only forces Menu/webJoystickMode on an actually-valid PosJ
+// line, not on any stray serial input (e.g. someone poking at Serial Monitor for
+// debugging).
 void usbJoystickLoop()
 {
   if (!Serial.available())
@@ -561,6 +563,12 @@ void usbJoystickLoop()
 
   String msg = Serial.readStringUntil('\n');
   msg.trim();
+
+  if (msg.startsWith("SteerLimitOn=") && msg.length() > 13)
+  {
+    STEERING_LIMIT_ENABLED = constrain(msg.substring(13).toInt(), 0, 1);
+    return;
+  }
 
   if (!msg.startsWith("PosJ") || msg.length() <= 5)
     return;
