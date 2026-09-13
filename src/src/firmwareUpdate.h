@@ -326,18 +326,6 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
   }
 }
 
-// PosJ.../GETVERSION/etc. never need more than the normal 115200 - only the bulk firmware
-// transfer benefits from going faster, so the baud rate only changes for that transfer's
-// duration (see the OTAREADY handshake below), never the board's normal running baud rate.
-//
-// 921600 consistently corrupted the transfer a few KB in ("wrong magic byte") even after
-// fixing two real races in the switch-over handshake and the app's read/write concurrency -
-// pointing at 921600 itself being too aggressive for this specific CP210x+ESP32 pairing
-// rather than a remaining software race. 460800 is still 4x the original 115200 (a ~1.2MB
-// image in ~25s instead of over a minute) and is a far more commonly reliable rate across
-// USB-serial hardware.
-const unsigned long USB_OTA_BAUD = 460800;
-
 // Flashes firmware sent raw over the USB-serial connection - the same connection the app's
 // primary control path (usbJoystickLoop(), src.ino) already uses for "PosJ.../SteerLimitOn=",
 // instead of the wifi uploadCurrentFirmware()/installFirmwareUpdate() paths below (which need
@@ -347,21 +335,18 @@ const unsigned long USB_OTA_BAUD = 460800;
 // bytes, which is why this reads with Serial.available()/readBytes() rather than
 // readStringUntil('\n') like the rest of usbJoystickLoop() - this is binary data, not text lines.
 //
-// "OTAREADY" + a baud rate bump happens right before those bytes start: at the original
-// 115200, a ~1.2MB image takes well over a minute (confirmed on real hardware, ~1%/second -
-// annoying, but not what the delay values below are protecting). Both sides need to switch at
-// the same moment or the transfer garbles, hence the explicit ack instead of just guessing a
-// safe pause; the phone switches its own port the instant it sees "OTAREADY" (before writing
-// any firmware bytes), and this side switches right after sending it. On success the reboot
-// naturally resets Serial back to 115200 (setup() calls Serial.begin() at the normal rate
-// again); on a failure that happens after the switch, this reverts explicitly so subsequent
-// GETVERSION/PosJ traffic isn't left stuck at the OTA-only baud rate.
+// Deliberately stays at the normal 115200 the whole time - a faster OTA-only baud (tried both
+// 921600 and 460800, with an OTAREADY/OTAGO handshake to line up the switch) reliably corrupted
+// the transfer a few KB in ("wrong magic byte") no matter how carefully the switch-over itself
+// was synchronized, on this specific CP210x+ESP32 pairing. ~1.2MB at 115200 takes over a minute
+// (~1%/second) - annoying, but a slow update that actually completes beats a fast one that
+// doesn't, and if a faster common ground is found later this is the one place to change it back.
 //
-// [expectedMd5] guards against exactly that kind of corruption: this link has zero error
-// detection of its own (unlike the wifi upload path, which rides on TCP) - Update.setMD5()
-// makes Update.end() below verify the received image against it, turning silent corruption
-// into a clear "MD5 Mismatch" instead of a cryptic "Could not activate the firmware" (which
-// is what a corrupted-but-right-length image's failed boot-partition validation looks like).
+// [expectedMd5] guards against exactly the corruption a raw, unchecked serial link risks: this
+// isn't TCP, there's no built-in error detection. Update.setMD5() makes Update.end() below
+// verify the received image against it, turning silent corruption into a clear "MD5 Mismatch"
+// instead of a cryptic "Could not activate the firmware" (what a corrupted-but-right-length
+// image's failed boot-partition validation looks like).
 bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
 {
   if (contentLength == 0 || updateInProgress)
@@ -387,24 +372,6 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
 
   Update.onProgress(showFirmwareWriteProgress); // was missing - OLED never showed a percentage
 
-  Serial.println("OTAREADY");
-  Serial.flush();
-  delay(50);
-  Serial.begin(USB_OTA_BAUD);
-  delay(50);
-
-  // "OTAGO", sent at the NEW baud, is what the phone actually waits for before writing any
-  // firmware bytes - not just a fixed delay after OTAREADY. The two chips have no way to
-  // switch baud at the exact same instant, so a delay-based handshake alone left a real race:
-  // if the phone started writing the split second before this side's UART had actually
-  // re-locked at the new rate, its first byte(s) got sampled at the old rate and came out
-  // corrupted - confirmed on real hardware as "wrong magic byte" (Update.write() checks that
-  // byte on the very first chunk, which is exactly why the failure always hit right at 0%
-  // instead of partway through). The phone only proceeds once it has successfully decoded
-  // this line, which is only possible if both sides are already locked to the same baud.
-  Serial.println("OTAGO");
-  Serial.flush();
-
   size_t received = 0;
   uint8_t buf[1024];
   unsigned long lastProgressMillis = millis();
@@ -427,7 +394,6 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
           Serial.println("OTAERROR:" + updateErrorMessage);
           Update.abort();
           updateInProgress = false;
-          Serial.begin(115200);
           return false;
         }
         received += n;
@@ -440,7 +406,6 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
       Serial.println("OTAERROR:" + updateErrorMessage);
       Update.abort();
       updateInProgress = false;
-      Serial.begin(115200); // back to normal - this failure path doesn't reboot
       return false;
     }
   }
@@ -455,7 +420,6 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
     Serial.println("OTAERROR:" + updateErrorMessage);
     Update.abort();
     updateInProgress = false;
-    Serial.begin(115200); // back to normal - this failure path doesn't reboot
     return false;
   }
 
