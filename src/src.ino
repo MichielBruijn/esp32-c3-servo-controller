@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.19"; // Software revision.
+char codeVersion[] = "1.20"; // Software revision.
 
 //
 // =======================================================================================================
@@ -828,6 +828,13 @@ void wifiStationFinishConnected()
   wifiIpString = WiFi.localIP().toString();
   Serial.print("Connected, IP: ");
   Serial.println(wifiIpString);
+
+  // Default WiFi power-save (modem sleep) periodically powers the radio down between beacons -
+  // fine for a quick page load, but a sustained transfer (firmware download/upload, or dragging
+  // a joystick control) can stall hard for seconds at a time while the radio is asleep and miss
+  // its window to recover, instead of just slowing down. This device is never battery-life
+  // constrained enough for that trade-off to be worth it.
+  WiFi.setSleep(false);
 
   if (MDNS.begin("servotester"))
   {
