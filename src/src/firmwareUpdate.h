@@ -275,14 +275,20 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
   client.println("Connection: close");
   client.println();
 
+  Serial.printf("Firmware download: starting, %u bytes\n", (unsigned)size);
+
   uint8_t buf[1024];
   size_t offset = 0;
+  size_t lastLoggedOffset = 0;
   unsigned long lastProgressMillis = millis();
   while (offset < size)
   {
     size_t toRead = min(sizeof(buf), size - offset);
     if (esp_partition_read(running, offset, buf, toRead) != ESP_OK)
+    {
+      Serial.printf("Firmware download: esp_partition_read failed at offset %u\n", (unsigned)offset);
       break;
+    }
     // client.write() returning 0 usually just means the TCP send buffer is momentarily full
     // (completely normal over WiFi) - treating that as "connection dropped" and bailing out
     // immediately is what made this download reliably cut off partway (~100+KB in) on a real
@@ -296,11 +302,23 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
       {
         sent += n;
         lastProgressMillis = millis();
+        if (offset + sent - lastLoggedOffset >= 16384)
+        {
+          lastLoggedOffset = offset + sent;
+          Serial.printf("Firmware download: %u/%u, heap=%u, rssi=%d, status=%d\n",
+                        (unsigned)lastLoggedOffset, (unsigned)size, (unsigned)ESP.getFreeHeap(),
+                        WiFi.RSSI(), (int)WiFi.status());
+        }
       }
       else
       {
         if (!client.connected() || millis() - lastProgressMillis > 15000)
+        {
+          Serial.printf("Firmware download: giving up at %u/%u (connected=%d, stalled=%lu ms), heap=%u, rssi=%d, status=%d\n",
+                        (unsigned)(offset + sent), (unsigned)size, (int)client.connected(),
+                        millis() - lastProgressMillis, (unsigned)ESP.getFreeHeap(), WiFi.RSSI(), (int)WiFi.status());
           return;
+        }
         delay(2);
       }
     }
