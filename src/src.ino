@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.24"; // Software revision.
+char codeVersion[] = "1.25"; // Software revision.
 
 //
 // =======================================================================================================
@@ -551,6 +551,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   }
 }
 
+// Defined in src/firmwareUpdate.h, included further down (line ~770) - needs a
+// forward declaration here since usbJoystickLoop() below (which calls it) is
+// defined earlier in this file than that #include.
+bool usbFirmwareUpdate(size_t contentLength);
+
 // Reads "PosJ{ch}=<value>" and "SteerLimitOn=<0|1>" lines from the USB serial
 // port - an alternative to the websocket path above for a phone connected via
 // USB-OTG cable instead of joining this board's wifi (avoids that phone having
@@ -576,6 +581,21 @@ void usbJoystickLoop()
   if (msg.startsWith("SteerLimitOn=") && msg.length() > 13)
   {
     STEERING_LIMIT_ENABLED = constrain(msg.substring(13).toInt(), 0, 1);
+    return;
+  }
+
+  // Lets a phone connected over this same USB-OTG cable flash new firmware
+  // without any wifi involved at all - see usbFirmwareUpdate() (firmwareUpdate.h)
+  // for the actual transfer/flash logic, which reuses the same Update library
+  // as the existing wifi-upload/GitHub-download paths.
+  if (msg == "GETVERSION")
+  {
+    Serial.println("VERSION=" + String(codeVersion));
+    return;
+  }
+  if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
+  {
+    usbFirmwareUpdate((size_t)msg.substring(10).toInt());
     return;
   }
 

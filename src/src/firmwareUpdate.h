@@ -326,6 +326,79 @@ void sendRunningFirmwareAsDownload(WiFiClient &client)
   }
 }
 
+// Flashes firmware sent raw over the USB-serial connection - the same connection the app's
+// primary control path (usbJoystickLoop(), src.ino) already uses for "PosJ.../SteerLimitOn=",
+// instead of the wifi uploadCurrentFirmware()/installFirmwareUpdate() paths below (which need
+// this board on the same wifi network the phone is on, or - for installFirmwareUpdate() - actual
+// internet access, neither of which the USB-only primary control path has at all). Triggered by
+// "OTAUPDATE=<size>" (usbJoystickLoop()); the phone then writes exactly <size> raw firmware
+// bytes, which is why this reads with Serial.available()/readBytes() rather than
+// readStringUntil('\n') like the rest of usbJoystickLoop() - this is binary data, not text lines.
+// Prints "OTAOK" or "OTAERROR:<message>" when done so the phone knows whether it worked.
+bool usbFirmwareUpdate(size_t contentLength)
+{
+  if (contentLength == 0 || updateInProgress)
+  {
+    Serial.println("OTAERROR:bad size or update already in progress");
+    return false;
+  }
+
+  beginFirmwareWrite();
+
+  if (!Update.begin(contentLength))
+  {
+    updateErrorMessage = "Not enough OTA space";
+    Serial.println("OTAERROR:" + updateErrorMessage);
+    updateInProgress = false;
+    return false;
+  }
+
+  size_t received = 0;
+  uint8_t buf[1024];
+  unsigned long lastProgressMillis = millis();
+  while (received < contentLength)
+  {
+    size_t avail = Serial.available();
+    if (avail > 0)
+    {
+      size_t n = Serial.readBytes(buf, min(sizeof(buf), min(avail, contentLength - received)));
+      if (n > 0)
+      {
+        Update.write(buf, n);
+        received += n;
+        lastProgressMillis = millis();
+      }
+    }
+    else if (millis() - lastProgressMillis > 15000)
+    {
+      updateErrorMessage = "Upload stalled at " + String(received) + "/" + String(contentLength) + " bytes";
+      Serial.println("OTAERROR:" + updateErrorMessage);
+      Update.abort();
+      updateInProgress = false;
+      return false;
+    }
+  }
+
+  bool endOk = Update.end();
+  bool finishedOk = Update.isFinished();
+
+  if (!endOk || !finishedOk)
+  {
+    updateErrorMessage = "Write failed: " + String(received) + "/" + String(contentLength) +
+                          " bytes, end=" + String(endOk) + ", " + Update.errorString();
+    Serial.println("OTAERROR:" + updateErrorMessage);
+    Update.abort();
+    updateInProgress = false;
+    return false;
+  }
+
+  Serial.println("OTAOK");
+  Serial.flush();
+  delay(200); // let the phone actually read "OTAOK" before the reboot drops the UART mid-byte
+  showFirmwareWriteCompleteAndRestart(); // restarts the ESP32
+  return true; // Unreachable, but keeps the compiler happy about all paths returning
+}
+
 // Flashes a firmware.bin uploaded directly from a browser (e.g. one downloaded from another
 // device above) - no internet or GitHub release involved. The upload page posts the raw file
 // as the POST body (not a multipart form), so this just reads exactly contentLength raw bytes
