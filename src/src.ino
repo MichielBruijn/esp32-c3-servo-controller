@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.23"; // Software revision.
+char codeVersion[] = "1.24"; // Software revision.
 
 //
 // =======================================================================================================
@@ -496,6 +496,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   msg.reserve(length);
   for (size_t i = 0; i < length; i++)
     msg += (char)payload[i];
+
+  // Same quick on/off as GET /?SteerLimitOn= (webInterface.h) and the USB-serial
+  // path's usbJoystickLoop() - lets an app connected over the wifi websocket
+  // toggle Steering Limit too, not just USB or the physical web page.
+  if (msg.startsWith("SteerLimitOn=") && msg.length() > 13)
+  {
+    STEERING_LIMIT_ENABLED = constrain(msg.substring(13).toInt(), 0, 1);
+    return;
+  }
 
   // "PosJ{ch}={value}" comes from the Joystick Mode touch tracks specifically - only those go
   // through channel linking/Steering Limit. Plain "Pos{ch}={value}" (Manual Mode's sliders, which
