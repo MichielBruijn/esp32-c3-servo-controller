@@ -384,6 +384,18 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
   Serial.begin(USB_OTA_BAUD);
   delay(50);
 
+  // "OTAGO", sent at the NEW baud, is what the phone actually waits for before writing any
+  // firmware bytes - not just a fixed delay after OTAREADY. The two chips have no way to
+  // switch baud at the exact same instant, so a delay-based handshake alone left a real race:
+  // if the phone started writing the split second before this side's UART had actually
+  // re-locked at the new rate, its first byte(s) got sampled at the old rate and came out
+  // corrupted - confirmed on real hardware as "wrong magic byte" (Update.write() checks that
+  // byte on the very first chunk, which is exactly why the failure always hit right at 0%
+  // instead of partway through). The phone only proceeds once it has successfully decoded
+  // this line, which is only possible if both sides are already locked to the same baud.
+  Serial.println("OTAGO");
+  Serial.flush();
+
   size_t received = 0;
   uint8_t buf[1024];
   unsigned long lastProgressMillis = millis();
@@ -395,7 +407,20 @@ bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5)
       size_t n = Serial.readBytes(buf, min(sizeof(buf), min(avail, contentLength - received)));
       if (n > 0)
       {
-        Update.write(buf, n);
+        // Checked, rather than assumed - Update.write() returns 0 (not n) once it has
+        // rejected the image internally (e.g. bad magic byte on the very first chunk) and
+        // every further call is a no-op. Previously this loop kept draining the rest of the
+        // stream regardless, so a failure that was already certain at byte 0 only surfaced
+        // as a generic error after the whole (wasted) transfer finished.
+        if (Update.write(buf, n) != n)
+        {
+          updateErrorMessage = "Write rejected at byte " + String(received) + ": " + Update.errorString();
+          Serial.println("OTAERROR:" + updateErrorMessage);
+          Update.abort();
+          updateInProgress = false;
+          Serial.begin(115200);
+          return false;
+        }
         received += n;
         lastProgressMillis = millis();
       }
