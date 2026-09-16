@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.36"; // Software revision.
+char codeVersion[] = "1.37"; // Software revision.
 
 //
 // =======================================================================================================
@@ -600,6 +600,25 @@ void usbJoystickLoop()
   if (msg == "GETJOYCHANNELS")
   {
     Serial.println("JOYCHANNELS=" + String(JOYSTICK_X_CHANNEL) + "," + String(JOYSTICK_Y_CHANNEL));
+    return;
+  }
+  // Lets a phone-side app map its -1.0..1.0 input onto THIS board's own
+  // calibrated µs range per channel (Menu -> Servo calibration), instead of
+  // assuming the generic 1000/1500/2000 RC default - applySteerOutput()/
+  // applyThrottleOutput() above already constrain() to these same per-channel,
+  // per-mode values, so a mismatched assumption on the app side just silently
+  // lost whatever range sits outside the app's hardcoded guess.
+  if (msg == "GETCALIBRATION")
+  {
+    int xMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
+    int yMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
+    Serial.println("CALIBRATION=" +
+                    String(SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                    String(SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                    String(SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                    String(SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
+                    String(SERVO_CENTER_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
+                    String(SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]));
     return;
   }
   if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
