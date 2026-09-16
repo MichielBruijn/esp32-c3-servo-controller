@@ -35,7 +35,7 @@
  GPIO 0: Onboard BOOT button, repurposed as a "next channel" shortcut
  */
 
-char codeVersion[] = "1.37"; // Software revision.
+char codeVersion[] = "1.38"; // Software revision.
 
 //
 // =======================================================================================================
@@ -1537,7 +1537,11 @@ void MenuUpdate()
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_LEFT);
       display.setFont(ArialMT_Plain_10);
-      display.drawString(0, 10, "Hz");
+      // In Joystick Mode, the BOOT button still cycles selectedServo so every channel's live
+      // value can be watched while driving (including linked channels, not just Steer/Throttle) -
+      // but nothing on screen said which channel was currently shown. Repurposing this corner
+      // label (Hz isn't the focus here anyway) to name it fixes that with no layout changes.
+      display.drawString(0, 10, webJoystickMode ? ("CH" + String(selectedServo + 1)) : "Hz");
       display.drawString(0, 20, String(SERVO_Hz));
       display.drawString(0, 35, servoMode);
       display.setTextAlignment(TEXT_ALIGN_RIGHT);
