@@ -593,6 +593,15 @@ void usbJoystickLoop()
     Serial.println("VERSION=" + String(codeVersion));
     return;
   }
+  // Lets a phone-side app drive whichever channels this board's own Joystick
+  // X/Y are actually configured for (Menu -> Joystick channel mapping),
+  // instead of assuming a fixed default that silently stops matching the
+  // moment someone changes it on the board itself.
+  if (msg == "GETJOYCHANNELS")
+  {
+    Serial.println("JOYCHANNELS=" + String(JOYSTICK_X_CHANNEL) + "," + String(JOYSTICK_Y_CHANNEL));
+    return;
+  }
   if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
   {
     // "OTAUPDATE=<size>:<md5hex>" - the MD5 lets usbFirmwareUpdate() verify the image
