@@ -12,7 +12,12 @@
 #include <esp_partition.h>
 
 const char *GITHUB_RELEASES_API_URL = "https://api.github.com/repos/MichielBruijn/esp32-servo-tester/releases/latest";
-const char *FIRMWARE_ASSET_NAME = "firmware.bin";
+// Deliberately a DIFFERENT asset name than the classic-ESP32/MCPWM build's "firmware.bin" - both
+// variants currently share one repo/release stream, and flashing the wrong board's binary onto
+// this one would brick it (different chip architecture, RISC-V vs Xtensa). Until a release
+// actually attaches a "firmware-c3-mini.bin" asset, checkForFirmwareUpdate() below will simply
+// never find a match and updateAvailable stays false - safe by construction, not by convention.
+const char *FIRMWARE_ASSET_NAME = "firmware-c3-mini.bin";
 
 // Extracts the string value of a "key":"value" pair from raw JSON text, starting the search at
 // searchFrom. No JSON library needed for two flat string fields.
@@ -98,41 +103,17 @@ void checkForFirmwareUpdate()
 void beginFirmwareWrite()
 {
   updateInProgress = true;
-
-  // Silence any click-beep immediately - beep() (which normally turns it back off after
-  // beepDuration ms) only runs from loop(), which this function blocks for its whole duration,
-  // so without this the beep that fired on the button press triggering this would otherwise
-  // ring continuously for as long as the update takes.
-  ledcWrite(BUZZER_LEDC_CHANNEL, 0);
-  beepDuration = 0;
-
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 25, "Updating...");
-  display.drawString(64, 45, "Do not power off");
-  display.display();
+  Serial.println("Firmware update: starting, do not power off");
 }
 
 void showFirmwareWriteProgress(size_t written, size_t total)
 {
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 15, "Updating...");
-  display.setFont(ArialMT_Plain_24);
-  display.drawString(64, 35, String((written * 100) / total) + "%");
-  display.display();
+  Serial.printf("Firmware update: %u%%\n", (unsigned)((written * 100) / total));
 }
 
 void showFirmwareWriteCompleteAndRestart()
 {
-  display.clear();
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.setFont(ArialMT_Plain_16);
-  display.drawString(64, 25, "Update complete");
-  display.drawString(64, 45, "Restarting...");
-  display.display();
+  Serial.println("Firmware update: complete, restarting...");
   delay(1500);
   ESP.restart();
 }
