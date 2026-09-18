@@ -681,7 +681,7 @@ void webInterface()
                 int chCenterVal = servoCenterForChannel(ch);
                 valueString = String(servo_pos[ch], DEC);
 
-                client.println("<p><h3>Servo " + String(ch + 1) + " Microseconds: <span id=\"textServo" + String(ch) + "SliderValue\">" + valueString + "</span>");
+                client.println("<p><h3>Servo " + String(servopin[ch]) + " Microseconds: <span id=\"textServo" + String(ch) + "SliderValue\">" + valueString + "</span>");
                 client.println("<button class=\"button button1\" onclick=\"centerServo" + String(ch) + "()\">Center</button></p>");
 
                 client.println("<p style=\"display:flex;align-items:center;gap:8px;\">");
@@ -729,7 +729,7 @@ void webInterface()
               for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
               {
                 String activeClass = (ch == selectedServo) ? "buttonActive" : "button3";
-                client.println("<a href=\"/?Ch=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                client.println("<a href=\"/?Ch=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(servopin[ch]) + "</button></a>");
               }
               client.println("</p>");
 
@@ -793,7 +793,7 @@ void webInterface()
               for (uint8_t ch = 0; ch < NUM_SERVO_CHANNELS; ch++)
               {
                 String activeClass = (ch == selectedServo) ? "buttonActive" : "button3";
-                client.println("<a href=\"/?Ch=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                client.println("<a href=\"/?Ch=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(servopin[ch]) + "</button></a>");
               }
               client.println("</p>");
 
@@ -857,7 +857,7 @@ void webInterface()
               {
                 bool active = (ch == JOYSTICK_X_CHANNEL) || (JOYSTICK_X_LINK_MASK & (1 << ch));
                 String activeClass = active ? "buttonActive" : "button3";
-                client.println("<a href=\"/?JoyXSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                client.println("<a href=\"/?JoyXSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(servopin[ch]) + "</button></a>");
               }
               client.println("</p>");
 
@@ -866,7 +866,7 @@ void webInterface()
               {
                 bool active = (ch == JOYSTICK_Y_CHANNEL) || (JOYSTICK_Y_LINK_MASK & (1 << ch));
                 String activeClass = active ? "buttonActive" : "button3";
-                client.println("<a href=\"/?JoyYSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(ch + 1) + "</button></a>");
+                client.println("<a href=\"/?JoyYSet=" + String(ch) + "&\"><button style=\"width:18%;display:inline-block;\" class=\"button " + activeClass + "\">CH" + String(servopin[ch]) + "</button></a>");
               }
               client.println("</p>");
 
