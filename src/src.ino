@@ -46,6 +46,10 @@ arduinoWebSockets                             2.4.1
 #include <HTTPClient.h>       // for checking/downloading firmware releases from GitHub
 #include <WiFiClientSecure.h> // HTTPS transport for the GitHub API and release asset download
 #include <Update.h>           // for writing a downloaded firmware image to the OTA partition
+#include <BLEDevice.h>        // Bluetooth LE control channel - Nordic UART Service, alternative to
+#include <BLEServer.h>        // joining the wifi AP (avoids a phone's captive-portal/"no internet"
+#include <BLEUtils.h>         // confusion when this board's AP obviously has none)
+#include <BLE2902.h>          // notify descriptor for the TX characteristic
 #include <EEPROM.h>          // for non volatile storage
 #include <Esp.h>             // for displaying memory information
 #include "rom/rtc.h"         // for displaying reset reason
@@ -389,29 +393,48 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 }
 
 // Defined in src/firmwareUpdate.h, included further down - needs a forward declaration here since
-// usbJoystickLoop() below (which calls it) is defined earlier in this file than that #include.
+// handleControlLine() below (which calls it) is defined earlier in this file than that #include.
 bool usbFirmwareUpdate(size_t contentLength, const String &expectedMd5);
 
-// Reads "PosJ{ch}=<value>" and "SteerLimitOn=<0|1>" lines from the USB serial
-// port - an alternative to the websocket path above for a phone connected via
-// USB-OTG cable instead of joining this board's wifi (avoids that phone having
-// to juggle wifi-to-here plus mobile data for its own uplink at the same time).
-// Deliberately mirrors webSocketEvent's PosJ branch and the HTTP SteerLimitOn
-// handler exactly (same channel-linking/Steering-Limit path via
-// applySteerOutput/applyThrottleOutput, same lastJoystickMsgMillis feed into the
-// existing >500ms failsafe, same immediate non-persisted toggle) so all
-// transports behave identically. Runs unconditionally every loop() iteration -
-// an external controller can't depend on someone also being at a physical menu
-// on a board that no longer has one. Only forces Menu/webJoystickMode on an
-// actually-valid PosJ line, not on any stray serial input (e.g. someone poking
-// at Serial Monitor for debugging).
-void usbJoystickLoop()
-{
-  if (!Serial.available())
-    return;
+// BLE TX characteristic (Nordic UART Service) - set up in setupBle(), NULL until then. Declared here
+// (not down in the BLE setup block) so controlReply() below can see it regardless of #include order.
+BLECharacteristic *bleTxCharacteristic = NULL;
 
-  String msg = Serial.readStringUntil('\n');
+// Sends one reply line back over whichever transport the command came in on. BLE notifications don't
+// go through a Print/Stream-like interface the way Serial does, hence this small wrapper instead of
+// just handing callers a Stream reference.
+void controlReply(bool viaBle, const String &line)
+{
+  if (viaBle)
+  {
+    if (bleTxCharacteristic != NULL)
+    {
+      bleTxCharacteristic->setValue(line.c_str());
+      bleTxCharacteristic->notify();
+    }
+  }
+  else
+  {
+    Serial.println(line);
+  }
+}
+
+// Parses one already-received command line - "PosJ{ch}=<value>", "SteerLimitOn=<0|1>", GETVERSION,
+// GETJOYCHANNELS, GETCALIBRATION, OTAUPDATE=<size>:<md5> - shared by usbJoystickLoop() (Serial) and
+// the BLE NUS RX callback (setupBle() below), so the two transports can never drift out of sync with
+// two copies of the same parsing logic. Deliberately mirrors webSocketEvent's PosJ branch and the
+// HTTP SteerLimitOn handler exactly (same channel-linking/Steering-Limit path via
+// applySteerOutput/applyThrottleOutput, same lastJoystickMsgMillis feed into the existing >500ms
+// failsafe, same immediate non-persisted toggle) so all transports behave identically. Runs
+// unconditionally every loop() iteration - an external controller can't depend on someone also being
+// at a physical menu on a board that no longer has one. Only forces Menu/webJoystickMode on an
+// actually-valid PosJ line, not on any stray input (e.g. someone poking at Serial Monitor for
+// debugging).
+void handleControlLine(String msg, bool viaBle)
+{
   msg.trim();
+  if (msg.length() == 0)
+    return;
 
   if (msg.startsWith("SteerLimitOn=") && msg.length() > 13)
   {
@@ -425,7 +448,7 @@ void usbJoystickLoop()
   // as the existing wifi-upload/GitHub-download paths.
   if (msg == "GETVERSION")
   {
-    Serial.println("VERSION=" + String(codeVersion));
+    controlReply(viaBle, "VERSION=" + String(codeVersion));
     return;
   }
   // Lets a phone-side app drive whichever channels this board's own Joystick
@@ -434,7 +457,7 @@ void usbJoystickLoop()
   // moment someone changes it in the web interface.
   if (msg == "GETJOYCHANNELS")
   {
-    Serial.println("JOYCHANNELS=" + String(JOYSTICK_X_CHANNEL) + "," + String(JOYSTICK_Y_CHANNEL));
+    controlReply(viaBle, "JOYCHANNELS=" + String(JOYSTICK_X_CHANNEL) + "," + String(JOYSTICK_Y_CHANNEL));
     return;
   }
   // Lets a phone-side app map its -1.0..1.0 input onto THIS board's own
@@ -447,17 +470,23 @@ void usbJoystickLoop()
   {
     int xMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_X_CHANNEL)];
     int yMode = SERVO_MODE_PER_GROUP[servoTimerGroup(JOYSTICK_Y_CHANNEL)];
-    Serial.println("CALIBRATION=" +
-                    String(SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
-                    String(SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
-                    String(SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
-                    String(SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
-                    String(SERVO_CENTER_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
-                    String(SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]));
+    controlReply(viaBle, "CALIBRATION=" +
+                              String(SERVO_MIN_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                              String(SERVO_CENTER_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                              String(SERVO_MAX_BY_MODE[JOYSTICK_X_CHANNEL][xMode]) + "," +
+                              String(SERVO_MIN_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
+                              String(SERVO_CENTER_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]) + "," +
+                              String(SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]));
     return;
   }
   if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
   {
+    // Raw, unchecked byte-stream firmware flashing - needs the much higher, more reliable throughput
+    // of the wired serial link, BLE's tiny MTU/notify-based transfer isn't a fit. Silently ignored
+    // over BLE rather than attempted, instead of failing/crashing partway through.
+    if (viaBle)
+      return;
+
     // "OTAUPDATE=<size>:<md5hex>" - the MD5 lets usbFirmwareUpdate() verify the image
     // actually arrived intact over this raw, unchecked serial byte stream (see its doc).
     String rest = msg.substring(10);
@@ -500,6 +529,59 @@ void usbJoystickLoop()
   {
     servo_pos[ch] = value; // Shouldn't normally happen - Joystick Mode only ever drives its 2 configured channels
   }
+}
+
+// Alternative to the websocket path above for a phone connected via USB-OTG cable instead of joining
+// this board's wifi (avoids that phone having to juggle wifi-to-here plus mobile data for its own
+// uplink at the same time). See handleControlLine() for the actual command parsing, shared with BLE.
+void usbJoystickLoop()
+{
+  if (!Serial.available())
+    return;
+
+  String msg = Serial.readStringUntil('\n');
+  handleControlLine(msg, false);
+}
+
+// Nordic UART Service RX characteristic write callback - same role as usbJoystickLoop() above, just
+// fed from a BLE central (phone) instead of the USB serial port. BLE writes arrive as complete
+// packets already (no line-buffering needed like Serial.readStringUntil()).
+class BleRxCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *characteristic)
+  {
+    String msg = String(characteristic->getValue().c_str());
+    handleControlLine(msg, true);
+  }
+};
+
+#define BLE_NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define BLE_NUS_RX_CHAR_UUID "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define BLE_NUS_TX_CHAR_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+// Bluetooth LE control channel, always advertising alongside the wifi AP from boot - added because a
+// phone joining the "ServoTester" wifi AP (which has no internet behind it) triggers captive-portal
+// detection and confuses whichever app is driving this board over wifi. BLE carries no such
+// internet-access expectation, so it sidesteps that problem entirely for the same command set.
+// Advertised as a separate device name ("ServoTester-BLE") so it's not confused with the wifi AP in a
+// scanner. Same command protocol as usbJoystickLoop()/handleControlLine() above - deliberately NOT a
+// replacement for serial (still primary) or wifi (kept as-is), just a third always-on option.
+void setupBle()
+{
+  BLEDevice::init("ServoTester-BLE");
+  BLEServer *server = BLEDevice::createServer();
+  BLEService *service = server->createService(BLE_NUS_SERVICE_UUID);
+
+  bleTxCharacteristic = service->createCharacteristic(
+      BLE_NUS_TX_CHAR_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+  bleTxCharacteristic->addDescriptor(new BLE2902());
+
+  BLECharacteristic *rxCharacteristic = service->createCharacteristic(
+      BLE_NUS_RX_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+  rxCharacteristic->setCallbacks(new BleRxCallbacks());
+
+  service->start();
+  server->getAdvertising()->start();
 }
 
 // Speicher HTTP request
@@ -759,6 +841,8 @@ void setup()
   {
     wifiSetup(); // Access Point mode
   }
+
+  setupBle(); // Always-on BLE control channel, alongside serial (primary) and wifi (kept as-is)
 }
 
 //
