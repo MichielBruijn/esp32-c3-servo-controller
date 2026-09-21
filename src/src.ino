@@ -563,12 +563,13 @@ class BleRxCallbacks : public BLECharacteristicCallbacks
 // phone joining the "ServoTester" wifi AP (which has no internet behind it) triggers captive-portal
 // detection and confuses whichever app is driving this board over wifi. BLE carries no such
 // internet-access expectation, so it sidesteps that problem entirely for the same command set.
-// Advertised as a separate device name ("ServoTester-BLE") so it's not confused with the wifi AP in a
-// scanner. Same command protocol as usbJoystickLoop()/handleControlLine() above - deliberately NOT a
-// replacement for serial (still primary) or wifi (kept as-is), just a third always-on option.
+// Advertised as "MeshDrive" (this board's role in the vehicle, not the generic ServoTester project
+// name - the wifi AP keeps its own "ServoTester" name, they're distinct enough in a scanner). Same
+// command protocol as usbJoystickLoop()/handleControlLine() above - deliberately NOT a replacement
+// for serial (still primary) or wifi (kept as-is), just a third always-on option.
 void setupBle()
 {
-  BLEDevice::init("ServoTester-BLE");
+  BLEDevice::init("MeshDrive");
   BLEServer *server = BLEDevice::createServer();
   BLEService *service = server->createService(BLE_NUS_SERVICE_UUID);
 
