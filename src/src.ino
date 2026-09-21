@@ -823,6 +823,11 @@ void setupBle()
   rxCharacteristic->setCallbacks(new BleRxCallbacks());
 
   service->start();
+  // Without this, the service UUID never makes it into the advertisement packet itself
+  // (only the device name does) - discoverable by name in a generic scan, but invisible
+  // to any scanner (like the Android app) that filters on the NUS service UUID, which is
+  // the whole point of filtering by UUID instead of name in the first place.
+  server->getAdvertising()->addServiceUUID(BLE_NUS_SERVICE_UUID);
   server->getAdvertising()->start();
 }
 
