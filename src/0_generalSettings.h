@@ -7,7 +7,7 @@
  */
 
 // WiFi settings -------------------------------------------------------------------------------------------------
-const char* ssid = "ServoTester";  // SSID
+const char* ssid = "MespDrive";  // SSID
 const char* password = "123456789";       // Password
 
 /* Wifi transmission power: less power = longer battery life. Valid options are:
