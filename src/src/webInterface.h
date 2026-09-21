@@ -302,25 +302,7 @@ void webInterface()
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1 + 1, pos2);
               int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-              if (ch == JOYSTICK_X_CHANNEL)
-              {
-                if (JOYSTICK_X_LINK_MASK != 0)
-                {
-                  for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
-                  {
-                    if (JOYSTICK_X_LINK_MASK & (1 << c))
-                    {
-                      JOYSTICK_X_CHANNEL = c;
-                      JOYSTICK_X_LINK_MASK &= ~(1 << c);
-                      break;
-                    }
-                  }
-                }
-              }
-              else
-              {
-                JOYSTICK_X_LINK_MASK ^= (1 << ch);
-              }
+              toggleJoystickXChannel(ch); // shared with handleControlLine()'s SETJOYX, see its doc in src.ino
               eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
             }
             if (header.indexOf("GET /?JoyYSet=") >= 0)
@@ -329,25 +311,7 @@ void webInterface()
               pos2 = header.indexOf('&');
               valueString = header.substring(pos1 + 1, pos2);
               int ch = constrain(valueString.toInt(), 0, NUM_SERVO_CHANNELS - 1);
-              if (ch == JOYSTICK_Y_CHANNEL)
-              {
-                if (JOYSTICK_Y_LINK_MASK != 0)
-                {
-                  for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
-                  {
-                    if (JOYSTICK_Y_LINK_MASK & (1 << c))
-                    {
-                      JOYSTICK_Y_CHANNEL = c;
-                      JOYSTICK_Y_LINK_MASK &= ~(1 << c);
-                      break;
-                    }
-                  }
-                }
-              }
-              else
-              {
-                JOYSTICK_Y_LINK_MASK ^= (1 << ch);
-              }
+              toggleJoystickYChannel(ch); // shared with handleControlLine()'s SETJOYY, see its doc in src.ino
               eepromWrite(); // Persist immediately - a reboot (e.g. a firmware update) must not silently revert an unsaved toggle
             }
             if (header.indexOf("GET /?SteerLimit=") >= 0)
