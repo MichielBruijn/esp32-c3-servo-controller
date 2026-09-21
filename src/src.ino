@@ -532,6 +532,48 @@ void handleControlLine(String msg, bool viaBle)
     return;
   }
 
+  // --- GET* queries for a full settings-screen mirror of webInterface.h's Settings page, letting
+  // a phone app pre-fill real current values (mode/calibration/angle/joystick-links/wifi) instead
+  // of asking the user to type in a value from scratch, same reasoning as GETCALIBRATION above.
+
+  // "GETCHANNEL={ch}" -> "CHANNEL={ch}:{mode}:{min},{center},{max}:{degrees}" - one channel's
+  // current mode and that mode's own calibration/angle, exactly what the web Settings page shows
+  // once a channel is selected (SERVO_MIN/CENTER/MAX_BY_MODE[selectedServo][SERVO_MODE], SERVO_DEGREES).
+  if (msg.startsWith("GETCHANNEL=") && msg.length() > 11)
+  {
+    int ch = msg.substring(11).toInt();
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS)
+    {
+      controlReply(viaBle, "ERROR:GETCHANNEL invalid channel");
+      return;
+    }
+    int mode = SERVO_MODE_PER_GROUP[servoTimerGroup(ch)];
+    controlReply(viaBle, "CHANNEL=" + String(ch) + ":" + String(mode) + ":" +
+                              String(SERVO_MIN_BY_MODE[ch][mode]) + "," +
+                              String(SERVO_CENTER_BY_MODE[ch][mode]) + "," +
+                              String(SERVO_MAX_BY_MODE[ch][mode]) + ":" +
+                              String(SERVO_DEGREES[ch]));
+    return;
+  }
+
+  // "GETJOYLINKS" -> "JOYLINKS={JOYSTICK_X_CHANNEL}:{JOYSTICK_X_LINK_MASK}:{JOYSTICK_Y_CHANNEL}:{JOYSTICK_Y_LINK_MASK}" -
+  // same masks webInterface.h's Settings page uses to highlight the Steer/Throttle channel buttons.
+  if (msg == "GETJOYLINKS")
+  {
+    controlReply(viaBle, "JOYLINKS=" + String(JOYSTICK_X_CHANNEL) + ":" + String(JOYSTICK_X_LINK_MASK) + ":" +
+                              String(JOYSTICK_Y_CHANNEL) + ":" + String(JOYSTICK_Y_LINK_MASK));
+    return;
+  }
+
+  // "GETWIFI" -> "WIFI={mode}:{ssid}:{password}" - same fields the web Settings page's WiFi section
+  // shows (including the password in plain text - this board has no more sensitive a trust model
+  // over BLE/serial than it already does putting it straight into that page's HTML).
+  if (msg == "GETWIFI")
+  {
+    controlReply(viaBle, "WIFI=" + String(WIFI_MODE) + ":" + STA_SSID + ":" + STA_PASSWORD);
+    return;
+  }
+
   // --- SET commands: the write-side counterpart to the GET queries above, letting a phone app
   // configure this board over serial/BLE without ever touching the web interface (which needs
   // wifi - the whole reason BLE exists here). Each one mutates the same globals the web interface
