@@ -783,6 +783,17 @@ class BleRxCallbacks : public BLECharacteristicCallbacks
   }
 };
 
+// Without this, advertising stops for good after the first connection attempt (successful
+// or aborted) and never resumes - this library doesn't restart it automatically. Confirmed
+// live: a failed connect from a laptop left the board permanently unadvertised until reboot.
+class BleServerCallbacks : public BLEServerCallbacks
+{
+  void onDisconnect(BLEServer *server)
+  {
+    server->getAdvertising()->start();
+  }
+};
+
 #define BLE_NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define BLE_NUS_RX_CHAR_UUID "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define BLE_NUS_TX_CHAR_UUID "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -791,15 +802,16 @@ class BleRxCallbacks : public BLECharacteristicCallbacks
 // phone joining the "ServoTester" wifi AP (which has no internet behind it) triggers captive-portal
 // detection and confuses whichever app is driving this board over wifi. BLE carries no such
 // internet-access expectation, so it sidesteps that problem entirely for the same command set.
-// Advertised as "MeshDrive" (this board's role in the vehicle, not the generic ServoTester project
-// name - the wifi AP keeps its own "ServoTester" name, they're distinct enough in a scanner). Same
-// command protocol as usbJoystickLoop()/handleControlLine()
-// above - deliberately NOT a replacement for serial (still primary) or wifi (kept as-is), just a
-// third always-on option.
+// Advertised as "MespDrive" - deliberately not the same as the Android app's "MeshDrive": a nod to
+// this being the ESP side (h->p), and a quick visual confirmation in a scanner that this is the
+// board, not the phone. The wifi AP keeps its own "ServoTester" name. Same command protocol as
+// usbJoystickLoop()/handleControlLine() above - deliberately NOT a replacement for serial (still
+// primary) or wifi (kept as-is), just a third always-on option.
 void setupBle()
 {
-  BLEDevice::init("MeshDrive");
+  BLEDevice::init("MespDrive");
   BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new BleServerCallbacks());
   BLEService *service = server->createService(BLE_NUS_SERVICE_UUID);
 
   bleTxCharacteristic = service->createCharacteristic(
