@@ -142,6 +142,57 @@ uint8_t servoTimerGroup(uint8_t ch)
   return 2;   // Servo 5
 }
 
+// Toggles channel `ch`'s membership as an ADDITIONAL channel driven alongside Steer/Throttle, or -
+// if `ch` is currently the primary JOYSTICK_X/Y_CHANNEL itself - promotes the next linked channel
+// and drops it from the mask. Extracted here so both the web interface's JoyXSet/JoyYSet handlers
+// (webInterface.h) and handleControlLine()'s SETJOYX/SETJOYY (below) share one copy of this logic
+// instead of drifting apart.
+void toggleJoystickXChannel(int ch)
+{
+  if (ch == JOYSTICK_X_CHANNEL)
+  {
+    if (JOYSTICK_X_LINK_MASK != 0)
+    {
+      for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
+      {
+        if (JOYSTICK_X_LINK_MASK & (1 << c))
+        {
+          JOYSTICK_X_CHANNEL = c;
+          JOYSTICK_X_LINK_MASK &= ~(1 << c);
+          break;
+        }
+      }
+    }
+  }
+  else
+  {
+    JOYSTICK_X_LINK_MASK ^= (1 << ch);
+  }
+}
+
+void toggleJoystickYChannel(int ch)
+{
+  if (ch == JOYSTICK_Y_CHANNEL)
+  {
+    if (JOYSTICK_Y_LINK_MASK != 0)
+    {
+      for (uint8_t c = 0; c < NUM_SERVO_CHANNELS; c++)
+      {
+        if (JOYSTICK_Y_LINK_MASK & (1 << c))
+        {
+          JOYSTICK_Y_CHANNEL = c;
+          JOYSTICK_Y_LINK_MASK &= ~(1 << c);
+          break;
+        }
+      }
+    }
+  }
+  else
+  {
+    JOYSTICK_Y_LINK_MASK ^= (1 << ch);
+  }
+}
+
 // Min/Max/Center in µs, per servo channel AND per mode (STD/NOR/SHR/SSR/SUR/SXR) - each mode
 // remembers its own calibration independently for a given channel.
 int SERVO_MAX_BY_MODE[NUM_SERVO_CHANNELS][NUM_SERVO_MODES];
@@ -420,7 +471,8 @@ void controlReply(bool viaBle, const String &line)
 }
 
 // Parses one already-received command line - "PosJ{ch}=<value>", "SteerLimitOn=<0|1>", GETVERSION,
-// GETJOYCHANNELS, GETCALIBRATION, OTAUPDATE=<size>:<md5> - shared by usbJoystickLoop() (Serial) and
+// GETJOYCHANNELS, GETCALIBRATION, SETCALIBRATION/SETMODE/SETANGLE/SETJOYX/SETJOYY/SETWIFI (see
+// their own comments below), OTAUPDATE=<size>:<md5> - shared by usbJoystickLoop() (Serial) and
 // the BLE NUS RX callback (setupBle() below), so the two transports can never drift out of sync with
 // two copies of the same parsing logic. Deliberately mirrors webSocketEvent's PosJ branch and the
 // HTTP SteerLimitOn handler exactly (same channel-linking/Steering-Limit path via
@@ -479,6 +531,182 @@ void handleControlLine(String msg, bool viaBle)
                               String(SERVO_MAX_BY_MODE[JOYSTICK_Y_CHANNEL][yMode]));
     return;
   }
+
+  // --- SET commands: the write-side counterpart to the GET queries above, letting a phone app
+  // configure this board over serial/BLE without ever touching the web interface (which needs
+  // wifi - the whole reason BLE exists here). Each one mutates the same globals the web interface
+  // itself writes (webInterface.h's Settings page), persists via the same eepromWrite() the web
+  // "Save" button calls, and replies "OK" or "ERROR:<reason>" - never a crash/silent no-op on bad
+  // input, since there's no form validation/browser round-trip to catch a typo on this side.
+  // Mode numbers throughout are STD=0/NOR=1/SHR=2/SSR=3/SUR=4/SXR=5 (see the enum near the top of
+  // this file); channel numbers are 0-4 (NOT the GPIO number shown in the web UI's "CH" labels).
+
+  // "SETCALIBRATION={ch}:{mode}:{min},{center},{max}" - Min/Center/Max in µs for one channel's one
+  // mode (each mode keeps its own calibration per channel, same as SERVO_MIN/CENTER/MAX_BY_MODE).
+  if (msg.startsWith("SETCALIBRATION=") && msg.length() > 15)
+  {
+    String rest = msg.substring(15);
+    int colon1 = rest.indexOf(':');
+    int colon2 = (colon1 >= 0) ? rest.indexOf(':', colon1 + 1) : -1;
+    if (colon1 <= 0 || colon2 <= colon1)
+    {
+      controlReply(viaBle, "ERROR:SETCALIBRATION malformed");
+      return;
+    }
+    int ch = rest.substring(0, colon1).toInt();
+    int mode = rest.substring(colon1 + 1, colon2).toInt();
+    String triple = rest.substring(colon2 + 1);
+    int comma1 = triple.indexOf(',');
+    int comma2 = (comma1 >= 0) ? triple.indexOf(',', comma1 + 1) : -1;
+    if (comma1 <= 0 || comma2 <= comma1)
+    {
+      controlReply(viaBle, "ERROR:SETCALIBRATION malformed");
+      return;
+    }
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS || mode < (int)STD || mode > (int)SXR)
+    {
+      controlReply(viaBle, "ERROR:SETCALIBRATION invalid channel or mode");
+      return;
+    }
+    int minUs = triple.substring(0, comma1).toInt();
+    int centerUs = triple.substring(comma1 + 1, comma2).toInt();
+    int maxUs = triple.substring(comma2 + 1).toInt();
+    if (!(minUs <= centerUs && centerUs <= maxUs))
+    {
+      controlReply(viaBle, "ERROR:SETCALIBRATION requires min<=center<=max");
+      return;
+    }
+    SERVO_MIN_BY_MODE[ch][mode] = minUs;
+    SERVO_CENTER_BY_MODE[ch][mode] = centerUs;
+    SERVO_MAX_BY_MODE[ch][mode] = maxUs;
+    eepromWrite();
+    controlReply(viaBle, "OK");
+    return;
+  }
+
+  // "SETMODE={ch}:{mode}" - mode is stored per timer group (servoTimerGroup()), so this also
+  // changes whichever other channel shares ch's group - identical behaviour to the web interface's
+  // Settings "Mode" control, which has the same group-wide effect.
+  if (msg.startsWith("SETMODE=") && msg.length() > 8)
+  {
+    String rest = msg.substring(8);
+    int colon = rest.indexOf(':');
+    if (colon <= 0)
+    {
+      controlReply(viaBle, "ERROR:SETMODE malformed");
+      return;
+    }
+    int ch = rest.substring(0, colon).toInt();
+    int mode = rest.substring(colon + 1).toInt();
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS || mode < (int)STD || mode > (int)SXR)
+    {
+      controlReply(viaBle, "ERROR:SETMODE invalid channel or mode");
+      return;
+    }
+    uint8_t group = servoTimerGroup(ch);
+    SERVO_MODE_PER_GROUP[group] = mode;
+    configureServoGroupFrequency(group); // re-apply the new Hz to LEDC immediately, not just on next reboot
+    eepromWrite();
+    controlReply(viaBle, "OK");
+    return;
+  }
+
+  // "SETANGLE={ch}:{degrees}" - full rotation range in degrees, purely a UI/scaling hint (matches
+  // SERVO_DEGREES' existing role) - doesn't affect the µs range itself.
+  if (msg.startsWith("SETANGLE=") && msg.length() > 9)
+  {
+    String rest = msg.substring(9);
+    int colon = rest.indexOf(':');
+    if (colon <= 0)
+    {
+      controlReply(viaBle, "ERROR:SETANGLE malformed");
+      return;
+    }
+    int ch = rest.substring(0, colon).toInt();
+    int degrees = rest.substring(colon + 1).toInt();
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS || degrees <= 0)
+    {
+      controlReply(viaBle, "ERROR:SETANGLE invalid channel or degrees");
+      return;
+    }
+    SERVO_DEGREES[ch] = degrees;
+    eepromWrite();
+    controlReply(viaBle, "OK");
+    return;
+  }
+
+  // "SETJOYX={ch}" / "SETJOYY={ch}" - toggle a channel's Steer/Throttle membership, exact same
+  // semantics as the web interface's JoyXSet/JoyYSet buttons (see toggleJoystickXChannel()/
+  // toggleJoystickYChannel()'s doc above): toggles ch as an additional linked channel, or - if ch
+  // is already the primary reference channel - promotes the next linked one in its place.
+  if (msg.startsWith("SETJOYX=") && msg.length() > 8)
+  {
+    int ch = msg.substring(8).toInt();
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS)
+    {
+      controlReply(viaBle, "ERROR:SETJOYX invalid channel");
+      return;
+    }
+    toggleJoystickXChannel(ch);
+    eepromWrite();
+    controlReply(viaBle, "OK");
+    return;
+  }
+  if (msg.startsWith("SETJOYY=") && msg.length() > 8)
+  {
+    int ch = msg.substring(8).toInt();
+    if (ch < 0 || ch >= NUM_SERVO_CHANNELS)
+    {
+      controlReply(viaBle, "ERROR:SETJOYY invalid channel");
+      return;
+    }
+    toggleJoystickYChannel(ch);
+    eepromWrite();
+    controlReply(viaBle, "OK");
+    return;
+  }
+
+  // "SETWIFI={mode}:{ssid}:{password}" - mode is WIFI_AP_MODE=0/WIFI_STATION_MODE=1. Lets Station
+  // mode be configured without ever joining the AP first - the actual point of adding this, since
+  // that's the one setting that otherwise has no way to be reached except over wifi itself. SSID/
+  // password are capped to the same 32/64-char EEPROM-reserved lengths as the web interface's
+  // StaSsid/StaPass fields; unlike those, not URL-decoded (this isn't a URL), so a literal ':' in
+  // either value isn't supported by this simple two-colon split.
+  if (msg.startsWith("SETWIFI=") && msg.length() > 8)
+  {
+    String rest = msg.substring(8);
+    int colon1 = rest.indexOf(':');
+    int colon2 = (colon1 >= 0) ? rest.indexOf(':', colon1 + 1) : -1;
+    if (colon1 <= 0 || colon2 < colon1)
+    {
+      controlReply(viaBle, "ERROR:SETWIFI malformed");
+      return;
+    }
+    int mode = rest.substring(0, colon1).toInt();
+    if (mode < (int)WIFI_AP_MODE || mode > (int)WIFI_STATION_MODE)
+    {
+      controlReply(viaBle, "ERROR:SETWIFI invalid mode");
+      return;
+    }
+    String newSsid = rest.substring(colon1 + 1, colon2).substring(0, 32);
+    String newPassword = rest.substring(colon2 + 1).substring(0, 64);
+    if (mode != WIFI_MODE || newSsid != STA_SSID || newPassword != STA_PASSWORD)
+    {
+      WIFI_MODE = mode;
+      STA_SSID = newSsid;
+      STA_PASSWORD = newPassword;
+      WiFiChanged = true;
+    }
+    eepromWrite();
+    if (WiFiChanged)
+    {
+      WiFiChanged = false;
+      wifiSetup(); // same as the web interface's "Save" button applying a pending wifi change
+    }
+    controlReply(viaBle, "OK");
+    return;
+  }
+
   if (msg.startsWith("OTAUPDATE=") && msg.length() > 10)
   {
     // Raw, unchecked byte-stream firmware flashing - needs the much higher, more reliable throughput
@@ -563,13 +791,14 @@ class BleRxCallbacks : public BLECharacteristicCallbacks
 // phone joining the "ServoTester" wifi AP (which has no internet behind it) triggers captive-portal
 // detection and confuses whichever app is driving this board over wifi. BLE carries no such
 // internet-access expectation, so it sidesteps that problem entirely for the same command set.
-// Advertised as "MeshDrive" (this board's role in the vehicle, not the generic ServoTester project
-// name - the wifi AP keeps its own "ServoTester" name, they're distinct enough in a scanner). Same
-// command protocol as usbJoystickLoop()/handleControlLine() above - deliberately NOT a replacement
-// for serial (still primary) or wifi (kept as-is), just a third always-on option.
+// Advertised as "MespDrive" (deliberate spelling - this board's "Esp" role in the MeshDrive vehicle,
+// not the generic ServoTester project name - the wifi AP keeps its own "ServoTester" name, they're
+// distinct enough in a scanner). Same command protocol as usbJoystickLoop()/handleControlLine()
+// above - deliberately NOT a replacement for serial (still primary) or wifi (kept as-is), just a
+// third always-on option.
 void setupBle()
 {
-  BLEDevice::init("MeshDrive");
+  BLEDevice::init("MespDrive");
   BLEServer *server = BLEDevice::createServer();
   BLEService *service = server->createService(BLE_NUS_SERVICE_UUID);
 
