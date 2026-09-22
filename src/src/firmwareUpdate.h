@@ -11,13 +11,15 @@
 #include <esp_ota_ops.h> // for esp_ota_get_running_partition() - reading back the current firmware to offer as a download
 #include <esp_partition.h>
 
-const char *GITHUB_RELEASES_API_URL = "https://api.github.com/repos/MichielBruijn/esp32-servo-tester/releases/latest";
-// Deliberately a DIFFERENT asset name than the classic-ESP32/MCPWM build's "firmware.bin" - both
-// variants currently share one repo/release stream, and flashing the wrong board's binary onto
-// this one would brick it (different chip architecture, RISC-V vs Xtensa). Until a release
-// actually attaches a "firmware-c3-mini.bin" asset, checkForFirmwareUpdate() below will simply
-// never find a match and updateAvailable stays false - safe by construction, not by convention.
-const char *FIRMWARE_ASSET_NAME = "firmware-c3-mini.bin";
+// Own dedicated repo, not the classic-ESP32/MCPWM build's esp32-servo-tester - the two used to
+// share one repo/release stream with a disambiguating asset name ("firmware-c3-mini.bin" vs.
+// "firmware.bin"), which the MeshDrive app's own release check (FirmwareUpdater.kt) still had
+// pointed at that shared repo - confirmed on real hardware as a genuine bug: it downloaded the
+// wrong board's binary (Xtensa, not RISC-V) and Update.end() correctly rejected it after a
+// byte-perfect wifi upload. This repo made public specifically so the app can fetch releases
+// without embedding a GitHub token in the APK.
+const char *GITHUB_RELEASES_API_URL = "https://api.github.com/repos/MichielBruijn/esp32-c3-servo-controller/releases/latest";
+const char *FIRMWARE_ASSET_NAME = "firmware.bin";
 
 // Extracts the string value of a "key":"value" pair from raw JSON text, starting the search at
 // searchFrom. No JSON library needed for two flat string fields.
