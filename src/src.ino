@@ -460,7 +460,14 @@ void controlReply(bool viaBle, const String &line)
   {
     if (bleTxCharacteristic != NULL)
     {
-      bleTxCharacteristic->setValue(line.c_str());
+      // Serial.println() below adds "\n" for free - this path didn't, and the app's line-
+      // buffering protocol (both USB and BLE, same "PosJ.../GETVERSION/..." convention) treats
+      // "\n" as the only end-of-line signal. Confirmed on real hardware as a genuine, total
+      // bug: every BLE command reply arrived intact but missing its final byte (the reply's
+      // own newline), so the app buffered it forever waiting for a line ending that would
+      // never come - every GETVERSION/GETJOYLINKS/etc. over BLE timed out, always, silently.
+      String withNewline = line + "\n";
+      bleTxCharacteristic->setValue(withNewline.c_str());
       bleTxCharacteristic->notify();
     }
   }
