@@ -26,7 +26,7 @@
  board's own 5V/3V3 pin - shared only GND - to avoid voltage-drop jitter on the PWM signal.
  */
 
-char codeVersion[] = "0.1-c3mini"; // Software revision.
+char codeVersion[] = "0.2-c3mini"; // Software revision.
 
 //
 // =======================================================================================================
